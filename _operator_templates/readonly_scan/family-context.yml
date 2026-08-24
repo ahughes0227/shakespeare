@@ -1,0 +1,10 @@
+purpose: Enumerate and describe existing files without altering anything.
+lifecycle: One read-only traversal producing an immutable inventory.
+contracts: Typed inventory of items with relative paths, sizes, digests and media types.
+allowed_configuration: Traversal bounds, ordering, digest algorithm and depth limits.
+side_effects: None. This family never writes.
+risks: Excessive traversal, symlink escape outside the input root, resource exhaustion.
+failure_modes: Unreadable path, permission denied, depth limit exceeded, timeout.
+resource_limits: Family defaults with candidate-specific bounded overrides.
+examples: Scanning an input tree; re-scanning a staged tree to verify a commit.
+provenance: Copier-rendered package plus test evidence and admission record.

@@ -1,0 +1,11 @@
+# {{ operator_name }} ({{ operator_version }})
+
+{{ operator_summary }}
+
+- Family: `{{ operator_family }}`
+- Trusted runner: `{{ entrypoint }}`
+- Runner operation: `{{ runner_operation }}`
+- Features: `{{ features_json }}`
+
+This package is declarative. To change behaviour, a human adds a vetted function to the
+family's runner allowlist in `shakespeare/runners.py`.

@@ -1,0 +1,51 @@
+_subdirectory: template
+_answers_file: .copier-answers.yml
+
+operator_name:
+  type: str
+  help: Registered operator name, e.g. name.render
+
+operator_version:
+  type: str
+  default: "1.0.0"
+
+operator_summary:
+  type: str
+
+operator_family:
+  type: str
+  choices:
+    - readonly_scan
+    - content_extract
+    - pure_transform
+    - filesystem_mutation
+
+# Must equal FAMILY_RUNNERS[operator_family].  The factory rejects anything else, so a
+# generated package cannot introduce a new call target.
+entrypoint:
+  type: str
+
+# The runner operation this package dispatches to.  Must already exist in the family's
+# closed allowlist: a template can select vetted behaviour, never author it.
+runner_operation:
+  type: str
+
+features_json:
+  type: str
+  default: "[]"
+
+template_revision:
+  type: str
+  default: "1.0"
+
+contract_version:
+  type: str
+  default: "1"
+
+side_effects_json:
+  type: str
+  default: "[]"
+
+dependencies_json:
+  type: str
+  default: "[]"

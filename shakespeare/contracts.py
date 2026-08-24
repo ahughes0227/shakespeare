@@ -140,7 +140,7 @@ class Allowance(Contract):
     per_item: int = Field(default=0, ge=0)
 
     @classmethod
-    def parse(cls, value: "Allowance | int | str") -> "Allowance":
+    def parse(cls, value: Allowance | int | str) -> Allowance:
         if isinstance(value, Allowance):
             return value
         if isinstance(value, int):
@@ -221,7 +221,7 @@ class Composition(Contract):
     rationale: str = ""
 
     @model_validator(mode="after")
-    def _validate(self) -> "Composition":
+    def _validate(self) -> Composition:
         seen: set[str] = set()
         for invocation in self.invocations:
             if invocation.invocation_id in seen:
@@ -288,7 +288,7 @@ class StagePlan(Contract):
     skipped: tuple[SkipDecision, ...] = ()
 
     @model_validator(mode="after")
-    def _disjoint(self) -> "StagePlan":
+    def _disjoint(self) -> StagePlan:
         activated = {item.domain_id for item in self.activated}
         skipped = {item.domain_id for item in self.skipped}
         if activated & skipped:
@@ -332,7 +332,7 @@ class StageSpec(Contract):
     side_effects: tuple[str, ...] = ()
 
     @model_validator(mode="after")
-    def _unique_domains(self) -> "StageSpec":
+    def _unique_domains(self) -> StageSpec:
         ids = [item.id for item in self.domains]
         if len(ids) != len(set(ids)):
             raise ValueError("domain ids must be unique within a stage")
@@ -410,7 +410,7 @@ class WorkflowSpec(Contract):
         return value
 
     @model_validator(mode="after")
-    def _commit_in_spine(self) -> "WorkflowSpec":
+    def _commit_in_spine(self) -> WorkflowSpec:
         names = [ref.split("@")[0] for ref in self.spine]
         if self.commit_after not in names:
             raise ValueError(f"commit_after names a stage not in the spine: {self.commit_after}")

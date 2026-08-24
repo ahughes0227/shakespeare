@@ -115,7 +115,7 @@ class Tracer:
         digests: dict[str, str] | None = None,
         counts: dict[str, int] | None = None,
         cost_usd: float | None = None,
-    ) -> Iterator["SpanState"]:
+    ) -> Iterator[SpanState]:
         started = time.monotonic()
         state = SpanState()
         try:

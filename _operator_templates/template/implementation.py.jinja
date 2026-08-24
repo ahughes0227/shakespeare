@@ -1,0 +1,10 @@
+"""Generated {{ operator_family }} package for {{ operator_name }}.
+
+Behaviour is supplied by the family's trusted runner.  Declarative values live in
+operator.json; this module intentionally contains no generated callable, which is what
+makes it safe for a model to request an operator package.
+"""
+
+FAMILY = {{ operator_family | tojson }}
+ENTRYPOINT = {{ entrypoint | tojson }}
+RUNNER_OPERATION = {{ runner_operation | tojson }}

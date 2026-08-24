@@ -1,0 +1,3 @@
+family: content_extract
+revision: "1.0"
+allowed_features: [pdf_text, pdf_ocr, docx, xlsx, email, image_ocr, fallback_chain, page_limit, char_limit]

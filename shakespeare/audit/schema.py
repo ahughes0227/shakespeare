@@ -11,6 +11,8 @@ dependencies a domain subagent expressed in its composition.
 
 from __future__ import annotations
 
+from typing import Any
+
 from sqlalchemy import (
     Boolean,
     Column,
@@ -28,7 +30,7 @@ from sqlalchemy.engine import Connection
 metadata = MetaData()
 
 
-def _table(name: str, *columns: Column) -> Table:
+def _table(name: str, *columns: Column[Any]) -> Table:
     return Table(name, metadata, *columns)
 
 

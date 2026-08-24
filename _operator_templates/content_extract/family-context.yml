@@ -1,0 +1,10 @@
+purpose: Derive text and metadata from immutable input bytes.
+lifecycle: One extraction per item, producing text plus provenance spans or a reason.
+contracts: Per-item text, provenance spans, media type and an explicit unavailable reason.
+allowed_configuration: Named backend, ordered fallback chain, page and character limits.
+side_effects: Workspace artifacts only. Never writes to the input or output roots.
+risks: Unbounded output, malformed documents, missing OCR binaries, slow parsing.
+failure_modes: Unsupported media type, corrupt file, OCR unavailable, char limit exceeded.
+resource_limits: Per-item page and character caps with a bounded wall-clock timeout.
+examples: PDF text layer extraction; OCR fallback for scanned invoices; DOCX and XLSX text.
+provenance: Copier-rendered package plus test evidence and admission record.

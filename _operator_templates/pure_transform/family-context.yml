@@ -1,0 +1,10 @@
+purpose: Transform data into data deterministically, with no input or output of any kind.
+lifecycle: One pure invocation; identical inputs always produce identical outputs.
+contracts: Fully typed input and output models with no filesystem or network references.
+allowed_configuration: Named algorithms and bounded typed parameters.
+side_effects: None. This family performs no I/O whatsoever.
+risks: Invalid assumptions, unhandled unicode, unbounded output size.
+failure_modes: Invalid input, unsupported option, failed invariant, output cap exceeded.
+resource_limits: Bounded output size and a short wall-clock timeout.
+examples: Rendering a filename from a frozen spec; resolving collisions; assembling a plan.
+provenance: Copier-rendered package plus test evidence and admission record.

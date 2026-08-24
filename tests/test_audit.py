@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 import pytest
-from sqlalchemy import text
-
 from shakespeare.audit import AuditStore
 from shakespeare.audit.schema import metadata
 from shakespeare.contracts import (
@@ -15,6 +13,8 @@ from shakespeare.contracts import (
     StageVerdict,
     utc_now,
 )
+from sqlalchemy import text
+from sqlalchemy.exc import IntegrityError
 
 
 def _seed_run(store: AuditStore, run_id: str = "r1") -> str:
@@ -33,7 +33,7 @@ class TestAppendOnly:
     @pytest.mark.parametrize("action", ["UPDATE runs SET workflow_id='x'", "DELETE FROM runs"])
     def test_mutation_is_rejected(self, store: AuditStore, action: str) -> None:
         _seed_run(store)
-        with pytest.raises(Exception, match="append-only"):
+        with pytest.raises(IntegrityError, match="append-only"):
             with store.engine.begin() as connection:
                 connection.execute(text(action))
 

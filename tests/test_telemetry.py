@@ -10,7 +10,7 @@ from __future__ import annotations
 import inspect
 
 import pytest
-
+from pydantic import ValidationError
 from shakespeare.contracts import ErrorCode, TelemetryEnvelope
 from shakespeare.telemetry import RecordingExporter, Tracer
 
@@ -66,7 +66,7 @@ class TestNoContentEverShips:
             assert parameter in allowed, f"unexpected span parameter: {parameter}"
 
     def test_envelope_rejects_raw_text_in_digests(self) -> None:
-        with pytest.raises(Exception):
+        with pytest.raises(ValidationError):
             TelemetryEnvelope(run_id="r", span="s", digests={"item": "ACME Corporation"})
 
 

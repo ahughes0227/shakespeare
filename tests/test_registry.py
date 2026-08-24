@@ -1,8 +1,7 @@
 from __future__ import annotations
 
 import pytest
-from pydantic import BaseModel
-
+from pydantic import BaseModel, ValidationError
 from shakespeare.contracts import OperatorFamily, OperatorSpec
 from shakespeare.registry import FAMILY_RUNNERS, OperatorRegistry, RegistryError
 
@@ -95,5 +94,5 @@ class TestRegistration:
         registry.register(spec("typed"), input_model=Input, output_model=Output)
         registered = registry.get("typed")
         assert registered.validate_input({"value": 3}) == {"value": 3}
-        with pytest.raises(Exception):
+        with pytest.raises(ValidationError):
             registered.validate_input({"value": "not an int", "extra": 1})

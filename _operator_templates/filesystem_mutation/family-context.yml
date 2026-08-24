@@ -1,0 +1,9 @@
+purpose: Perform a declared, reversible write beneath the staging or output root.
+lifecycle: Validate an immutable plan, stage, verify, commit atomically, journal a reversal.
+contracts: Exact target reference, before and after digests, reversal record and receipt.
+allowed_configuration: Allowlisted write root, mirroring policy and idempotency key.
+risks: Data loss, partial application, path escape, overwriting an existing output.
+failure_modes: Path escape rejected, target exists, cross-device move, verification mismatch.
+resource_limits: One commit attempt per plan; no automatic retry after ambiguity.
+examples: Copying into staging; renaming within staging; atomic commit; journaled reversal.
+provenance: Copier-rendered package, admission record, mutation ledger and reversal payload.
