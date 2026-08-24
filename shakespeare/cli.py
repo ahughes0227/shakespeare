@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Any
 from uuid import uuid4
 
 import typer
@@ -18,7 +18,16 @@ from rich.table import Table
 
 from .audit.metrics import snapshot
 from .bootstrap import Services, build_runtime, default_state_root
-from .contracts import ChangeAction, ChangePlan, RequestContract, ReversalRecord
+from .contracts import (
+    AdmissionChoice,
+    AdmissionDecision,
+    ChangeAction,
+    ChangePlan,
+    DecidedBy,
+    OptimizationRun,
+    RequestContract,
+    ReversalRecord,
+)
 from .gateway import GatewayError
 from .operators import mutation
 from .planner import FakePlanner, Planner
@@ -33,8 +42,12 @@ app = typer.Typer(
 )
 workflows_app = typer.Typer(help="Inspect registered workflows.", no_args_is_help=True)
 journal_app = typer.Typer(help="Read the immutable audit log.", no_args_is_help=True)
+requests_app = typer.Typer(help="Review requested operators.", no_args_is_help=True)
+prompts_app = typer.Typer(help="Inspect and promote prompt artifacts.", no_args_is_help=True)
 app.add_typer(workflows_app, name="workflows")
 app.add_typer(journal_app, name="journal")
+app.add_typer(requests_app, name="requests")
+app.add_typer(prompts_app, name="prompts")
 
 console = Console()
 err = Console(stderr=True)
@@ -474,6 +487,232 @@ def journal_dag(run_id: str, stage: str) -> None:
 def journal_costs(run_id: str) -> None:
     services = _services(planner=_no_model(), agents={})
     console.print_json(json.dumps(services.audit.costs(run_id), indent=2))
+
+
+# --------------------------------------------------------------------------------------
+# Operator admission
+# --------------------------------------------------------------------------------------
+
+
+@requests_app.command("list")
+def requests_list(
+    state_root: Annotated[Path | None, typer.Option("--state", hidden=True)] = None,
+) -> None:
+    """Operator requests awaiting a decision."""
+    services = _services(state_root, planner=_no_model(), agents={})
+    pending = services.audit.pending_admissions()
+    if not pending:
+        console.print("[dim]No operator requests are waiting.[/dim]")
+        return
+    table = Table(title="Pending operator requests")
+    table.add_column("report", style="dim")
+    table.add_column("operator", style="bold")
+    table.add_column("family")
+    table.add_column("kind")
+    table.add_column("risk")
+    for item in pending:
+        colour = {"low": "green", "medium": "yellow", "high": "red"}[item["computed_risk"]]
+        table.add_row(
+            item["report_id"][:12],
+            item["name"],
+            item["family"],
+            item["kind"],
+            f"[{colour}]{item['computed_risk']}[/{colour}]",
+        )
+    console.print(table)
+
+
+@requests_app.command("review")
+def requests_review(
+    report_id: Annotated[str, typer.Argument()],
+    state_root: Annotated[Path | None, typer.Option("--state", hidden=True)] = None,
+) -> None:
+    """Show everything a reviewer needs: the package, the risk, the findings, the tests."""
+    item = _pending(report_id, state_root)
+    console.print(
+        Panel(
+            f"[bold]{item['name']}[/bold]  ({item['family']}, {item['kind']} request)\n"
+            f"risk       {item['computed_risk']}\n"
+            f"digest     {item['package_digest'][:16]}\n"
+            f"reproducible {item['reproducible']}\n\n"
+            f"{item['request'].get('rationale', '')}",
+            title=f"report {item['report_id'][:12]}",
+            border_style="yellow",
+        )
+    )
+    if item["findings"]:
+        table = Table(title="Findings")
+        table.add_column("severity")
+        table.add_column("code")
+        table.add_column("message")
+        for finding in item["findings"]:
+            table.add_row(finding["severity"], finding["code"], finding["message"])
+        console.print(table)
+    console.print_json(json.dumps(item["test_results"], indent=2))
+    if item["kind"] == "behaviour":
+        err.print(
+            "[yellow]This is a behaviour request: it needs a runner operation that does "
+            "not exist. No approval here can satisfy it — a person must add the vetted "
+            "function to shakespeare/runners.py.[/yellow]"
+        )
+
+
+@requests_app.command("approve")
+def requests_approve(
+    report_id: Annotated[str, typer.Argument()],
+    rationale: Annotated[str, typer.Option("--why")] = "approved after review",
+    state_root: Annotated[Path | None, typer.Option("--state", hidden=True)] = None,
+) -> None:
+    """Admit a requested operator."""
+    _decide(report_id, AdmissionChoice.APPROVE, rationale, state_root)
+
+
+@requests_app.command("deny")
+def requests_deny(
+    report_id: Annotated[str, typer.Argument()],
+    rationale: Annotated[str, typer.Option("--why")] = "denied after review",
+    state_root: Annotated[Path | None, typer.Option("--state", hidden=True)] = None,
+) -> None:
+    """Refuse a requested operator. It never enters the registry."""
+    _decide(report_id, AdmissionChoice.DENY, rationale, state_root)
+
+
+def _pending(report_id: str, state_root: Path | None) -> dict[str, Any]:
+    services = _services(state_root, planner=_no_model(), agents={})
+    matches = [
+        item
+        for item in services.audit.pending_admissions()
+        if item["report_id"].startswith(report_id)
+    ]
+    if not matches:
+        _fail(f"no pending request matches {report_id!r}")
+    if len(matches) > 1:
+        _fail(f"{report_id!r} is ambiguous: {[m['report_id'][:12] for m in matches]}")
+    return matches[0]
+
+
+def _decide(
+    report_id: str, choice: AdmissionChoice, rationale: str, state_root: Path | None
+) -> None:
+    item = _pending(report_id, state_root)
+    if item["kind"] == "behaviour" and choice is AdmissionChoice.APPROVE:
+        _fail(
+            "a behaviour request cannot be approved: it needs a runner operation that "
+            "does not exist. Add the vetted function to shakespeare/runners.py instead."
+        )
+    services = _services(state_root, planner=_no_model(), agents={})
+    decision = AdmissionDecision(
+        decision_id=uuid4().hex,
+        report_id=str(item["report_id"]),
+        decided_by=DecidedBy.HUMAN,
+        choice=choice,
+        rationale=rationale,
+    )
+    services.audit.record_admission_decision(decision)
+    verb = "Approved" if choice is AdmissionChoice.APPROVE else "Denied"
+    colour = "green" if choice is AdmissionChoice.APPROVE else "yellow"
+    console.print(f"[{colour}]{verb}[/{colour}] {item['name']} ({item['report_id'][:12]})")
+
+
+# --------------------------------------------------------------------------------------
+# Prompt artifacts
+# --------------------------------------------------------------------------------------
+
+
+@prompts_app.command("list")
+def prompts_list(
+    prompt_root: Annotated[Path | None, typer.Option("--prompts", hidden=True)] = None,
+) -> None:
+    """Every prompt artifact, and which version each stage pins."""
+    from .prompts import PromptStore
+
+    services = _services(planner=_no_model(), agents={})
+    store = PromptStore(prompt_root)
+    pinned = {
+        domain.id: (stage.name, domain.prompt_version)
+        for ref in services.stages.refs()
+        for stage in [services.stages.get(ref)]
+        for domain in stage.domains
+    }
+    table = Table(title="Prompt artifacts")
+    table.add_column("signature", style="bold")
+    table.add_column("versions")
+    table.add_column("pinned by")
+    for signature in sorted(set(pinned) | {"planner.route", "planner.stage_plan",
+                                           "planner.stage_review"}):
+        versions = store.versions(signature)
+        if not versions:
+            continue
+        stage, version = pinned.get(signature, ("planner", "1.0.0"))
+        marked = ", ".join(f"[green]{v}[/green]" if v == version else v for v in versions)
+        table.add_row(signature, marked, f"{stage} @ {version}")
+    console.print(table)
+
+
+@prompts_app.command("compile")
+def prompts_compile(signature: Annotated[str, typer.Argument()]) -> None:
+    """Optimize a prompt offline with DSPy."""
+    from .optimize.compile import OptimizeError, require_dspy
+
+    try:
+        require_dspy()
+    except OptimizeError as exc:
+        _fail(str(exc))
+    _fail(
+        f"compiling {signature} needs a training set. Build one from the audit log with "
+        f"real runs, or seed golden fixtures first; see shakespeare/optimize/."
+    )
+
+
+@prompts_app.command("promote")
+def prompts_promote(
+    signature: Annotated[str, typer.Argument()],
+    candidate: Annotated[str, typer.Option("--candidate", help="Candidate version.")],
+    candidate_score: Annotated[float, typer.Option("--score")],
+    incumbent: Annotated[str | None, typer.Option("--incumbent")] = None,
+    incumbent_score: Annotated[float | None, typer.Option("--incumbent-score")] = None,
+    regressed: Annotated[
+        list[str] | None, typer.Option("--regressed", help="Golden fixture that regressed.")
+    ] = None,
+    state_root: Annotated[Path | None, typer.Option("--state", hidden=True)] = None,
+    prompt_root: Annotated[Path | None, typer.Option("--prompts", hidden=True)] = None,
+) -> None:
+    """Assess a compiled prompt against the promotion gate."""
+    from .optimize import PromotionGate, PromotionOutcome
+    from .prompts import PromptStore
+
+    store = PromptStore(prompt_root)
+    services = _services(state_root, planner=_no_model(), agents={})
+    run = OptimizationRun(
+        optimization_id=uuid4().hex,
+        signature_id=signature,
+        optimizer="manual",
+        eval_set_digest="0" * 64,
+        incumbent_version=incumbent,
+        incumbent_score=incumbent_score,
+        candidate_version=candidate,
+        candidate_score=candidate_score,
+        fixture_regressions=tuple(regressed or ()),
+    )
+    services.audit.record_optimization(run)
+    decision, outcome = PromotionGate().decide(
+        run,
+        incumbent=store.load(signature, incumbent) if incumbent else None,
+        candidate=store.load(signature, candidate),
+    )
+    services.audit.record_promotion(decision)
+
+    colour = {
+        PromotionOutcome.AUTO_PROMOTE: "green",
+        PromotionOutcome.HUMAN_REVIEW: "yellow",
+        PromotionOutcome.REJECT: "red",
+    }[outcome]
+    console.print(Panel(f"{outcome}\n{decision.rationale}", border_style=colour))
+    if outcome is PromotionOutcome.AUTO_PROMOTE:
+        console.print(
+            f"[dim]Pin it by setting prompt_version: \"{candidate}\" in the stage "
+            f"package that uses {signature}.[/dim]"
+        )
 
 
 @app.command()

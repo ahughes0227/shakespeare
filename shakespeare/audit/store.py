@@ -577,6 +577,62 @@ class AuditStore:
             "attempts": recorded,
         }
 
+    def pending_admissions(self) -> list[dict[str, Any]]:
+        """Requests that have a report but no decision yet.
+
+        A high-risk request suspends its run, so this is the queue a person works from.
+        """
+        with self.engine.begin() as connection:
+            decided = {
+                row[0]
+                for row in connection.execute(select(schema.admission_decisions.c.report_id))
+            }
+            rows = connection.execute(
+                select(schema.admission_reports, schema.operator_requests)
+                .select_from(
+                    schema.admission_reports.join(
+                        schema.operator_requests,
+                        schema.admission_reports.c.request_id
+                        == schema.operator_requests.c.request_id,
+                    )
+                )
+                .order_by(schema.operator_requests.c.recorded_at)
+            ).mappings().all()
+
+        return [
+            {
+                "report_id": row["report_id"],
+                "request_id": row["request_id"],
+                "candidate_id": row["candidate_id"],
+                "name": row["name"],
+                "family": row["family"],
+                "kind": row["kind"],
+                "computed_risk": row["computed_risk"],
+                "disposition": row["disposition"],
+                "package_digest": row["package_digest"],
+                "reproducible": bool(row["reproducible"]),
+                "findings": json.loads(row["findings"]),
+                "test_results": json.loads(row["test_results"]),
+                "request": json.loads(row["payload"]),
+            }
+            for row in rows
+            if row["report_id"] not in decided
+        ]
+
+    def promoted_prompts(self) -> list[dict[str, Any]]:
+        """Optimization runs and how each was decided."""
+        with self.engine.begin() as connection:
+            runs = connection.execute(
+                select(schema.optimization_runs).order_by(
+                    schema.optimization_runs.c.recorded_at
+                )
+            ).mappings().all()
+            decisions = {
+                row["optimization_id"]: dict(row)
+                for row in connection.execute(select(schema.promotion_decisions)).mappings()
+            }
+        return [{**dict(run), "decision": decisions.get(run["optimization_id"])} for run in runs]
+
     def costs(self, run_id: str) -> dict[str, Any]:
         with self.engine.begin() as connection:
             rows = connection.execute(
