@@ -1,0 +1,20 @@
+name: compose_changes
+version: "1.0.0"
+purpose: Resolve collisions and assemble a balanced change plan.
+goal: Every scanned item has exactly one terminal state and no two targets collide.
+input_contract: FieldValues
+output_contract: ChangePlan
+max_attempts: 2
+domains:
+  - id: change_composition
+    scope: Resolve duplicate targets and assemble the plan.
+    skippable: false
+    catalog: [name.collide, plan.assemble]
+    config_groups: [collision]
+    prompt_version: "1.0.0"
+obligations: [balanced, no_collisions, resolved_or_quarantined]
+budget:
+  operator_calls: "6 + 1*n"
+  model_invocations: "4"
+  wall_time_seconds: 1800
+side_effects: []

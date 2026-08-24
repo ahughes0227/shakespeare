@@ -98,7 +98,8 @@ def assemble_plan(
             )
             continue
 
-        target = f"{decision.directory}/{decision.name}" if decision.directory else decision.name
+        directory = "" if decision.directory in (".", "/") else decision.directory.strip("/")
+        target = f"{directory}/{decision.name}" if directory else decision.name
         current = item.relpath
         action = ChangeAction.UNCHANGED if target == current else ChangeAction.CHANGED
         entries.append(

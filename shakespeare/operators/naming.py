@@ -211,6 +211,50 @@ def render(
     return RenderResult(item_id=item_id, rendered=f"{stem}{extension}")
 
 
+class NamingSpec(Contract):
+    """The frozen convention.
+
+    Compiled once per run from the user's request, digested, and then applied mechanically
+    to every item.  Freezing it is what makes naming consistent across a set: the same
+    field values always render the same name, whatever route an agent took to find them.
+    """
+
+    template: str = Field(min_length=1)
+    fields: tuple[FieldDecl, ...] = Field(min_length=1)
+    policy: NamePolicy = NamePolicy()
+    collision_policy: str = "suffix_n"
+    confidence_floor: float = Field(default=0.7, ge=0, le=1)
+
+
+class SpecError(ValueError):
+    pass
+
+
+def freeze_spec(spec: NamingSpec) -> tuple[NamingSpec, str]:
+    """Validate a proposed convention against the grammar and field catalog."""
+    placeholders = _PLACEHOLDER.findall(spec.template)
+    if not placeholders:
+        raise SpecError("template declares no fields")
+
+    declared = {decl.name for decl in spec.fields}
+    for name, _ in placeholders:
+        if name not in declared and name != SEQUENCE_FIELD:
+            raise SpecError(f"template references an undeclared field: {name}")
+
+    unused = declared - {name for name, _ in placeholders} - {SEQUENCE_FIELD}
+    if unused:
+        raise SpecError(f"fields are declared but never used: {sorted(unused)}")
+
+    if not any(decl.required for decl in spec.fields) and SEQUENCE_FIELD not in {
+        name for name, _ in placeholders
+    }:
+        # Every field optional and no sequence means an empty name is renderable, which
+        # would collide for every item in the set.
+        raise SpecError("a spec must have at least one required field or a sequence")
+
+    return spec, content_digest(spec)
+
+
 # --------------------------------------------------------------------------------------
 # Collision resolution
 # --------------------------------------------------------------------------------------

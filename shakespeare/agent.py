@@ -60,7 +60,7 @@ class ModelDomainAgent:
             available_operators=sorted(domain.catalog),
             available_config_groups=sorted(domain.config_groups),
             catalog=catalog_summary,
-            stage_inputs=_summarize(stage_inputs),
+            stage_inputs=_for_prompt(stage_inputs),
         )
         draft, usage = self.gateway.complete(self.profile, messages, CompositionDraft)
         return (
@@ -73,23 +73,18 @@ class ModelDomainAgent:
         )
 
 
-def _summarize(stage_inputs: dict[str, Any]) -> dict[str, Any]:
-    """Describe inputs without inlining bulk content.
+def _for_prompt(stage_inputs: dict[str, Any]) -> dict[str, Any]:
+    """Stage inputs as the model must see them.
 
-    Graph state and prompts both stay free of document payloads; this is where that is
-    enforced for the prompt side.
+    A prompt *does* carry document content — reading an invoice is the entire point of
+    the field-resolution domain, and stripping the text would make the work impossible.
+    The redaction boundary is the telemetry channel, not this one: content stays in
+    process and in the prompt, and only digests are ever exported. See telemetry.py.
+
+    Runtime bookkeeping (leading underscore) is dropped because it is noise to a model,
+    not because it is sensitive.
     """
-    summary: dict[str, Any] = {}
-    for key, value in stage_inputs.items():
-        if isinstance(value, list):
-            summary[key] = {"kind": "list", "count": len(value)}
-        elif isinstance(value, dict):
-            summary[key] = {"kind": "mapping", "keys": sorted(value)[:20]}
-        elif isinstance(value, str) and len(value) > 200:
-            summary[key] = {"kind": "text", "chars": len(value)}
-        else:
-            summary[key] = value
-    return summary
+    return {key: value for key, value in stage_inputs.items() if not key.startswith("_")}
 
 
 @dataclass

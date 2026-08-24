@@ -95,6 +95,15 @@ BUILTIN: dict[str, tuple[OperatorSpec, str]] = {
         ),
         (
             _spec(
+                "spec.freeze",
+                OperatorFamily.PURE_TRANSFORM,
+                "Validate a proposed naming convention and freeze it under a digest.",
+                operation="freeze_spec",
+            ),
+            "freeze_spec",
+        ),
+        (
+            _spec(
                 "name.render",
                 OperatorFamily.PURE_TRANSFORM,
                 "Render filenames from a frozen spec and field values.",

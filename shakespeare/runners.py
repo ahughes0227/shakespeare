@@ -105,9 +105,55 @@ def _extract(arguments: dict[str, Any], workspace: Path) -> dict[str, Any]:
 
 
 def _render_template(arguments: dict[str, Any], workspace: Path) -> dict[str, Any]:
-    fields = tuple(naming.FieldDecl.model_validate(item) for item in arguments["fields"])
+    # A frozen spec carries the template, fields and policy together, so accepting one
+    # directly is what lets a composition bind spec.freeze straight into the renderer.
+    spec_payload = arguments.get("spec")
+    if spec_payload is not None:
+        spec = naming.NamingSpec.model_validate(spec_payload)
+        template = spec.template
+        fields = spec.fields
+        policy = spec.policy
+    else:
+        template = arguments["template"]
+        fields = tuple(naming.FieldDecl.model_validate(item) for item in arguments["fields"])
+        policy = _naming_policy(arguments)
+
+    results = [
+        naming.render(
+            item_id=item["item_id"],
+            template=template,
+            fields=fields,
+            values=item.get("values", {}),
+            policy=policy,
+            extension=item.get("extension", ""),
+            sequence=item.get("sequence", index + 1),
+        )
+        for index, item in enumerate(arguments["items"])
+    ]
+    directories = {item["item_id"]: item.get("directory", "") for item in arguments["items"]}
+    return {
+        "results": [item.model_dump(mode="json") for item in results],
+        # Shaped for name.collide, so a composition can bind one straight into the other.
+        "candidates": [
+            {
+                "item_id": item.item_id,
+                "directory": directories.get(item.item_id, ""),
+                "name": item.rendered,
+            }
+            for item in results
+            if item.rendered is not None
+        ],
+        "unrendered": [
+            {"item_id": item.item_id, "reason": item.reason}
+            for item in results
+            if item.rendered is None
+        ],
+    }
+
+
+def _naming_policy(arguments: dict[str, Any]) -> naming.NamePolicy:
     naming_config = (arguments.get("config") or {}).get("naming") or {}
-    policy = naming.NamePolicy.model_validate(
+    return naming.NamePolicy.model_validate(
         arguments.get(
             "policy",
             {
@@ -117,19 +163,6 @@ def _render_template(arguments: dict[str, Any], workspace: Path) -> dict[str, An
             },
         )
     )
-    results = [
-        naming.render(
-            item_id=item["item_id"],
-            template=arguments["template"],
-            fields=fields,
-            values=item.get("values", {}),
-            policy=policy,
-            extension=item.get("extension", ""),
-            sequence=item.get("sequence"),
-        )
-        for item in arguments["items"]
-    ]
-    return {"results": [item.model_dump(mode="json") for item in results]}
 
 
 def _normalize(arguments: dict[str, Any], workspace: Path) -> dict[str, Any]:
@@ -149,10 +182,28 @@ def _collision_resolve(arguments: dict[str, Any], workspace: Path) -> dict[str, 
     resolutions = naming.resolve_collisions(
         candidates, naming.CollisionPolicy(_cfg(arguments, "collision", "policy", "suffix_n"))
     )
-    return {"resolutions": [item.model_dump(mode="json") for item in resolutions]}
+    carried = [
+        {"item_id": item["item_id"], "directory": "", "name": None, "reason": item["reason"]}
+        for item in arguments.get("unrendered") or ()
+    ]
+    return {
+        "resolutions": [item.model_dump(mode="json") for item in resolutions] + carried
+    }
+
+
+def _freeze_spec(arguments: dict[str, Any], workspace: Path) -> dict[str, Any]:
+    spec, digest = naming.freeze_spec(naming.NamingSpec.model_validate(arguments["spec"]))
+    return {"spec": spec.model_dump(mode="json"), "digest": digest}
 
 
 def _plan_assemble(arguments: dict[str, Any], workspace: Path) -> dict[str, Any]:
+    if "planned" in set(arguments.get("_agent_supplied") or ()):
+        # Names must flow from name.render.  Allowing a hand-written `planned` here would
+        # let an agent bypass the renderer and invent filenames directly, which is exactly
+        # the inconsistency the frozen spec exists to prevent.
+        raise RunnerError(
+            "planned names must flow from name.render, not be supplied as parameters"
+        )
     plan = planning.assemble_plan(
         run_id=arguments["run_id"],
         workflow_id=arguments["workflow_id"],
@@ -240,6 +291,7 @@ _ALLOWLISTS: dict[OperatorFamily, dict[str, Operation]] = {
         "extract": _extract,
     },
     OperatorFamily.PURE_TRANSFORM: {
+        "freeze_spec": _freeze_spec,
         "render_template": _render_template,
         "normalize": _normalize,
         "collision_resolve": _collision_resolve,

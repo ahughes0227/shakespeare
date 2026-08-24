@@ -1,0 +1,10 @@
+purpose: Turn a free-text request into one machine-applicable naming convention.
+lifecycle: Compiled once per run, validated, digested, then immutable for the whole run.
+contracts: ExtractedContent in; a validated, digested NamingSpec out.
+allowed_configuration: Separator, case, length, collision policy and confidence floor.
+side_effects: None.
+risks: A convention that cannot render, or that renders identically for every item.
+failure_modes: Undeclared field referenced, no required field, unused declarations.
+resource_limits: A handful of model calls under a ten-minute wall clock.
+examples: Compiling "YYYYMM, vendor, invoice number, PO number" into a template.
+provenance: The spec digest, recorded and re-checked by the spec_frozen obligation.

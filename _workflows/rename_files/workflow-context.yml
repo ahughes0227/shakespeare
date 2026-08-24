@@ -1,0 +1,10 @@
+purpose: Rename files into an output tree mirroring the input, using a convention derived from the request.
+lifecycle: Inventory, extract, freeze a convention, resolve fields, plan, review, then commit atomically.
+contracts: A prompt and an input root in; a mirrored output tree and a balanced change plan out.
+allowed_configuration: Extraction backend, naming policy, collision policy and confidence floor.
+side_effects: Writes a new output root. The input tree is never modified.
+risks: Misread fields producing wrong names, colliding targets, or dropped files.
+failure_modes: Unreadable documents, OCR unavailable, unbalanced accounting, verification mismatch.
+resource_limits: Budgets scale per item; unbounded file counts are supported.
+examples: Renaming scanned invoices to "YYYYMM, vendor, invoice number, PO number.pdf"; numbering files sequentially.
+provenance: Pinned stage versions, operator versions, the frozen spec digest and the audit log.

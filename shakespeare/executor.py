@@ -197,13 +197,19 @@ class Executor:
             "operation": operation_of(invocation.operator),
             "config": config,
             **invocation.parameters,
+            # Which keys the agent wrote itself, as opposed to values that flowed from a
+            # prior operator.  Lets an operator refuse a hand-written value.
+            "_agent_supplied": sorted(invocation.parameters),
         }
         for reference in invocation.inputs:
+            # Two rules, deliberately different.  A prior invocation's output *splats*, so
+            # chaining operators inside one composition needs no wiring.  A stage input
+            # *binds by name*, so a mapping arrives whole rather than being scattered into
+            # unrelated argument names.  Use `bindings` to rename either.
             if reference in prior:
                 arguments.update(prior[reference])
             elif reference in stage_inputs:
-                value = stage_inputs[reference]
-                arguments.update(value if isinstance(value, dict) else {reference: value})
+                arguments[reference] = stage_inputs[reference]
             else:
                 return InvocationResult(
                     invocation_id=invocation.invocation_id,

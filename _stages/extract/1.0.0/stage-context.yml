@@ -1,0 +1,10 @@
+purpose: Derive text and provenance spans from immutable input bytes.
+lifecycle: One extraction pass per attempt; a failed backend may be retried by a rerun.
+contracts: FileInventory in; ExtractedContent out, each item carrying text or a reason.
+allowed_configuration: Extraction backend, ordered fallback chain, page and char limits.
+side_effects: Workspace artifacts only. Input and output roots are untouched.
+risks: Missing OCR binaries, corrupt documents, unbounded output, slow parsing.
+failure_modes: Unsupported media type, no text layer, OCR unavailable, char limit hit.
+resource_limits: Per-item page and character caps under a thirty-minute wall clock.
+examples: PDF text layers with an OCR fallback for scanned invoices.
+provenance: Stage package version, backend selection, and per-item digests.

@@ -1,0 +1,20 @@
+name: convention
+version: "1.0.0"
+purpose: Compile the user's request into one frozen naming convention.
+goal: A valid naming spec is frozen and digested for the whole run.
+input_contract: ExtractedContent
+output_contract: NamingSpec
+max_attempts: 2
+domains:
+  - id: convention_design
+    scope: Propose a naming template and field declarations matching the user's request.
+    skippable: false
+    catalog: [spec.freeze]
+    config_groups: [naming, collision, confidence]
+    prompt_version: "1.0.0"
+obligations: [spec_frozen]
+budget:
+  operator_calls: "4"
+  model_invocations: "4"
+  wall_time_seconds: 600
+side_effects: []

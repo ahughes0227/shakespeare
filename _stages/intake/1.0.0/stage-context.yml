@@ -1,0 +1,10 @@
+purpose: Validate the user's request and produce an immutable inventory of the input tree.
+lifecycle: One traversal per attempt, producing an inventory and a list of skipped paths.
+contracts: RequestContract in; FileInventory out, with per-item digests and media types.
+allowed_configuration: Traversal depth and hidden-file handling.
+side_effects: None. This stage reads only.
+risks: Symlink escape, unreadable files silently disappearing, unbounded traversal.
+failure_modes: Input root missing, permission denied, depth limit exceeded.
+resource_limits: Bounded traversal depth and a ten-minute wall clock.
+examples: Inventorying a nested folder of scanned invoices before any extraction.
+provenance: Stage package version plus the run's audit trail.

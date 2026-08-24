@@ -420,14 +420,9 @@ class Runtime:
         payload = context.get("plan")
         if payload is None:
             return None
-        from .operators.planning import RenameEntry
-
-        plan = ChangePlan.model_validate(payload)
-        entries = tuple(
-            RenameEntry.model_validate(entry)
-            for entry in payload.get("entries", [])
-        )
-        return plan.model_copy(update={"entries": entries})
+        # No workflow type is imported here: ChangeEntry carries a subclass's extra fields
+        # through validation, so the driver stays ignorant of what a plan entry means.
+        return ChangePlan.model_validate(payload)
 
 
 # --------------------------------------------------------------------------------------

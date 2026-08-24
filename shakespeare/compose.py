@@ -46,21 +46,38 @@ def catalog(config_root: str | None = None) -> dict[str, frozenset[str]]:
     }
 
 
-def _reject_unsafe(key: str, value: Any) -> None:
+#: Rejected at every depth.  `_target_` would instantiate a Python object if the value
+#: ever reached OmegaConf, `${` interpolates, and `..` is path traversal.
+_ALWAYS_FORBIDDEN: tuple[str, ...] = ("_target_", "${", "..")
+#: Rejected only in a top-level scalar, which is the shape a value would have if it were
+#: being used as configuration.  `~` and `+` are Hydra override operators and matter only
+#: in an override string; parameters never become override strings, and a vendor name may
+#: legitimately contain either.
+_SCALAR_FORBIDDEN: tuple[str, ...] = ("~", "+", "/", "\\")
+
+
+def _reject_unsafe(key: str, value: Any, *, depth: int = 0) -> None:
     if key.startswith("_") or not _SAFE_KEY.match(key):
         raise CompositionError(f"unsafe parameter key: {key!r}")
     if isinstance(value, str):
-        for token in FORBIDDEN_TOKENS:
+        for token in _ALWAYS_FORBIDDEN:
             if token in value:
                 raise CompositionError(f"unsafe parameter value for {key}: contains {token!r}")
-        if "/" in value or "\\" in value:
-            raise CompositionError(f"unsafe parameter value for {key}: contains a path separator")
+        if depth == 0:
+            for token in _SCALAR_FORBIDDEN:
+                if token in value:
+                    raise CompositionError(
+                        f"unsafe parameter value for {key}: contains {token!r}"
+                    )
     elif isinstance(value, dict):
+        # Nested payloads are data an operator consumes, not configuration. A relative
+        # directory such as "2024/q1" is ordinary data here; the actual write is guarded
+        # separately by mutation._guard, which resolves the path and checks containment.
         for inner_key, inner_value in value.items():
-            _reject_unsafe(str(inner_key), inner_value)
+            _reject_unsafe(str(inner_key), inner_value, depth=depth + 1)
     elif isinstance(value, (list, tuple)):
         for item in value:
-            _reject_unsafe(key, item)
+            _reject_unsafe(key, item, depth=depth + 1)
     elif not isinstance(value, (int, float, bool, type(None))):
         raise CompositionError(f"unsupported parameter type for {key}: {type(value).__name__}")
 

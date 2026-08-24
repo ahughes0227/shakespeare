@@ -13,7 +13,14 @@ from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    SerializeAsAny,
+    field_validator,
+    model_validator,
+)
 
 
 def utc_now() -> datetime:
@@ -453,7 +460,14 @@ class RequestContract(Contract):
 
 class ChangeEntry(Contract):
     """Base plan entry.  The runtime touches only these fields, which is what keeps
-    accounting, preview, commit and undo generic across workflows."""
+    accounting, preview, commit and undo generic across workflows.
+
+    Extras are allowed, deliberately: a workflow subclasses this to add its own fields
+    (a rename adds `target_relpath`), and a plan round-tripped through JSON must carry
+    them back without the runtime having to know which subclass produced it.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="allow")
 
     item_id: str = Field(min_length=1)
     source_ref: str = Field(min_length=1)
@@ -468,7 +482,10 @@ class ChangePlan(Contract):
     workflow_digest: str
     decision_digest: str
     operator_versions: dict[str, str] = Field(default_factory=dict)
-    entries: tuple[ChangeEntry, ...] = ()
+    #: SerializeAsAny, because workflows subclass ChangeEntry.  Without it Pydantic dumps
+    #: against the declared base type and silently drops subclass fields such as
+    #: `target_relpath`, producing a plan whose entries have no destination.
+    entries: tuple[SerializeAsAny[ChangeEntry], ...] = ()
 
     def balanced(self, scanned: int) -> bool:
         return len(self.entries) == scanned and len({e.item_id for e in self.entries}) == scanned

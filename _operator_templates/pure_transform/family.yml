@@ -1,3 +1,3 @@
 family: pure_transform
 revision: "1.0"
-allowed_features: [render_template, normalize, collision_resolve, plan_assemble, obligation_check]
+allowed_features: [freeze_spec, render_template, normalize, collision_resolve, plan_assemble, obligation_check]

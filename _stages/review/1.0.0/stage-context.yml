@@ -1,0 +1,10 @@
+purpose: Produce the evidence on which the commit verdict rests.
+lifecycle: Re-scan staging, compare against the plan, summarise exceptions.
+contracts: ChangePlan plus the staged tree in; ReviewEvidence out.
+allowed_configuration: None; verification is not configurable.
+side_effects: None. Verification reads the staged tree it is checking.
+risks: Passing a tree that does not match the plan, or missing an extra file.
+failure_modes: Missing file, digest mismatch, unexpected file, structure divergence.
+resource_limits: One re-scan under a thirty-minute wall clock.
+examples: Catching a truncated copy before it is committed to the output root.
+provenance: The verification report digest, recorded before the commit.
