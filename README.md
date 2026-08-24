@@ -73,7 +73,24 @@ uv run shakespeare stages | operators
 uv run shakespeare journal dag <run-id> extract  # what actually ran, failed attempts included
 uv run shakespeare metrics                       # agent-ops SLIs
 uv run shakespeare undo <run-id>
+uv run shakespeare replay <run-id> -i ./in    # re-execute from the journal, no model calls
+uv run shakespeare apply --plan plan.json -i ./in -o ./out
+uv run shakespeare requests list | review <id> | approve <id> | deny <id>
+uv run shakespeare prompts list | promote <sig> --candidate 1.1.0 --score 0.9
+uv run shakespeare canary list | record <name> | run
 ```
+
+`replay` swaps only the planner and the domain agents for journal-backed ones — the same
+verifier, executor and obligations run — so a replay that reproduces the original plan is
+evidence that the recorded compositions determine the result. It refuses to run against a
+changed workflow digest.
+
+`apply` re-verifies the plan's recorded source digests before staging, so a file changed
+or deleted since planning stops the commit rather than being renamed on stale information.
+
+`canary` re-runs golden cases through the real model on purpose: the point is to notice
+when the same prompt over the same files stops producing the same answer — a promoted
+prompt, a new operator version, or a provider changing silently behind an alias.
 
 ## Extending it
 
@@ -122,6 +139,7 @@ payloads and bypass the envelope entirely.
 uv run ruff check shakespeare tests
 uv run mypy shakespeare
 uv run pytest -q
+uv run alembic upgrade head    # the audit log is migrated, never recreated
 ```
 
 The suite runs offline. Every model touchpoint has a fake, and the fakes validate exactly

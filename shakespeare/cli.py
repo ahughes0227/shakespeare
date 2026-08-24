@@ -44,10 +44,12 @@ workflows_app = typer.Typer(help="Inspect registered workflows.", no_args_is_hel
 journal_app = typer.Typer(help="Read the immutable audit log.", no_args_is_help=True)
 requests_app = typer.Typer(help="Review requested operators.", no_args_is_help=True)
 prompts_app = typer.Typer(help="Inspect and promote prompt artifacts.", no_args_is_help=True)
+canary_app = typer.Typer(help="Golden-fixture drift detection.", no_args_is_help=True)
 app.add_typer(workflows_app, name="workflows")
 app.add_typer(journal_app, name="journal")
 app.add_typer(requests_app, name="requests")
 app.add_typer(prompts_app, name="prompts")
+app.add_typer(canary_app, name="canary")
 
 console = Console()
 err = Console(stderr=True)
@@ -713,6 +715,136 @@ def prompts_promote(
             f"[dim]Pin it by setting prompt_version: \"{candidate}\" in the stage "
             f"package that uses {signature}.[/dim]"
         )
+
+
+# --------------------------------------------------------------------------------------
+# Canary runs
+# --------------------------------------------------------------------------------------
+
+
+@canary_app.command("list")
+def canary_list(
+    root: Annotated[Path | None, typer.Option("--canaries", hidden=True)] = None,
+) -> None:
+    """Golden cases available for drift detection."""
+    from .canary import load_cases
+
+    cases = load_cases(root)
+    if not cases:
+        console.print(
+            "[dim]No canary cases. Create _canaries/<name>/case.yml with a prompt and an "
+            "inputs/ tree, then run `canary record <name>`.[/dim]"
+        )
+        return
+    table = Table(title="Canary cases")
+    table.add_column("name", style="bold")
+    table.add_column("entries")
+    table.add_column("prompt")
+    for case in cases:
+        table.add_row(
+            case.name,
+            str(len(case.expected)) if case.has_expectation else "[yellow]unrecorded[/yellow]",
+            case.prompt[:60],
+        )
+    console.print(table)
+
+
+@canary_app.command("run")
+def canary_run(
+    name: Annotated[str | None, typer.Argument(help="One case, or all of them.")] = None,
+    root: Annotated[Path | None, typer.Option("--canaries", hidden=True)] = None,
+    state_root: Annotated[Path | None, typer.Option("--state", hidden=True)] = None,
+) -> None:
+    """Re-run golden cases and report any drift.
+
+    This uses the real model on purpose: the point is to notice when the same prompt over
+    the same files stops producing the same answer — a promoted prompt, a new operator
+    version, or a provider changing silently behind an alias.
+    """
+    import tempfile
+
+    from .canary import load_cases, run_case
+
+    cases = [case for case in load_cases(root) if name is None or case.name == name]
+    if not cases:
+        _fail(f"no canary case named {name!r}" if name else "no canary cases are defined")
+
+    services = _services(state_root)
+    drifted = []
+    with tempfile.TemporaryDirectory() as scratch:
+        for case in cases:
+            if not case.has_expectation:
+                err.print(f"[yellow]skipped[/yellow] {case.name}: nothing recorded yet")
+                continue
+            result = run_case(
+                services.runtime, case, output_root=Path(scratch) / case.name
+            )
+            if not result.drifted:
+                console.print(f"[green]✓[/green] {case.name}  ({len(result.produced)} entries)")
+                continue
+            drifted.append(result)
+            if result.error:
+                err.print(f"[red]✗[/red] {case.name}: {result.error}")
+                continue
+            table = Table(title=f"{case.name} drifted")
+            table.add_column("source")
+            table.add_column("expected")
+            table.add_column("produced")
+            for row in result.diff():
+                table.add_row(*row)
+            err.print(table)
+
+    if drifted:
+        raise typer.Exit(code=1)
+
+
+@canary_app.command("record")
+def canary_record(
+    name: Annotated[str, typer.Argument()],
+    root: Annotated[Path | None, typer.Option("--canaries", hidden=True)] = None,
+    state_root: Annotated[Path | None, typer.Option("--state", hidden=True)] = None,
+) -> None:
+    """Capture a case's current decisions as its expectation.
+
+    Deliberately explicit: a canary that re-recorded itself on every run would never
+    detect anything.
+    """
+    import tempfile
+
+    from .canary import load_cases, record, run_case
+
+    matches = [case for case in load_cases(root) if case.name == name]
+    if not matches:
+        _fail(f"no canary case named {name!r}")
+    case = matches[0]
+
+    services = _services(state_root)
+    with tempfile.TemporaryDirectory() as scratch:
+        request_plan = run_case(services.runtime, case, output_root=Path(scratch) / name)
+    if request_plan.error:
+        _fail(f"{name} did not produce a plan: {request_plan.error}")
+
+    from .contracts import ChangeAction, ChangeEntry, ChangePlan
+
+    plan = ChangePlan(
+        run_id="recorded",
+        workflow_id="",
+        workflow_digest="",
+        decision_digest="",
+        entries=tuple(
+            ChangeEntry.model_validate(
+                {
+                    "item_id": source,
+                    "source_ref": source,
+                    "action": ChangeAction(action),
+                    **({"target_relpath": target} if target else {}),
+                }
+            )
+            for source, action, target in request_plan.produced
+        ),
+    )
+    path = record(case, plan, root)
+    console.print(f"[green]Recorded[/green] {len(request_plan.produced)} entries to {path}")
 
 
 @app.command()
