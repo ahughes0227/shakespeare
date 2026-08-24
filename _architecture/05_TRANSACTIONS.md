@@ -24,9 +24,15 @@ Mutable in-flight state belongs to the LangGraph checkpointer, never to the audi
 Three channels correlated by `run_id`: the audit log (facts, permanent, local), LangSmith
 traces (live, digests only), and the workspace (content, purgeable).
 
-Redaction is architectural: LangGraph state carries references not payloads; model calls
-go through our own gateway; `TelemetryEnvelope` is the only exportable shape. Client-side
-masking is defence in depth. A fake-exporter test asserts no fixture content ever ships.
+Redaction is architectural: model calls go through our own gateway rather than LangChain
+LM wrappers, and `TelemetryEnvelope` is the only exportable shape — there is no parameter
+on `Tracer.span` through which content could be passed. Client-side masking is defence in
+depth. A fake-exporter test asserts no fixture content ever ships.
+
+LangGraph's checkpointer is *local working state* and does contain content-derived values;
+it lives in the run's own workspace beside the extracted text and is protected the same
+way. The one path by which it could escape is LangChain's automatic node tracing, so
+`graph.disable_autotracing()` turns that off unless deliberately overridden.
 
 ## Replay and undo
 

@@ -111,6 +111,11 @@ The inputs are customer documents, so redaction is architectural rather than a s
 content could be passed. Nothing is exported at all unless `LANGSMITH_PROJECT` and
 `LANGSMITH_API_KEY` are both set.
 
+LangGraph's checkpointer holds local working state, including content-derived values. It
+sits in the run's own workspace alongside the extracted text and is protected the same
+way. LangChain's automatic node tracing is disabled, since it would ship whole node
+payloads and bypass the envelope entirely.
+
 ## Development
 
 ```bash
