@@ -12,6 +12,7 @@ from pathlib import Path
 
 from platformdirs import user_state_dir
 
+from .admission import AdmissionService
 from .agent import DomainAgent, ModelDomainAgent
 from .audit import AuditStore
 from .executor import Executor
@@ -83,6 +84,11 @@ def build_runtime(
         agents = agents or {"*": ModelDomainAgent(gateway=gateway, profile=profile,
                                                   prompts=prompts)}
 
+    admission = AdmissionService(
+        registry=operators,
+        audit=audit,
+        workspace=root / "candidates",
+    )
     runtime = Runtime(
         operators=operators,
         stages=stages,
@@ -95,6 +101,7 @@ def build_runtime(
         workspace_root=root / "runs",
         tracer=tracer,
         prompts=prompts,
+        admission=admission,
     )
     return Services(
         runtime=runtime,

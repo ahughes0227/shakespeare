@@ -144,10 +144,14 @@ class Executor:
         budget: Budget,
         stage: str | None = None,
         attempt: int | None = None,
+        granted: frozenset[str] = frozenset(),
     ) -> tuple[InvocationResult, ...]:
         """Verify then run every invocation in order, resolving declared inputs."""
         self.verifier.verify_composition(
-            composition, domain, operator_call_budget=budget.remaining_operator_calls()
+            composition,
+            domain,
+            operator_call_budget=budget.remaining_operator_calls(),
+            granted=granted,
         )
 
         outputs: dict[str, dict[str, Any]] = {}

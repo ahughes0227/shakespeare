@@ -91,7 +91,13 @@ class Verifier:
         domain: DomainSpec,
         *,
         operator_call_budget: int | None = None,
+        granted: frozenset[str] = frozenset(),
     ) -> None:
+        """`granted` holds operators admitted during this run for this domain.
+
+        The surface is widened only by a completed admission — computed risk, passing
+        test tiers, a reproducible render — never by an agent asking nicely.
+        """
         if composition.domain_id != domain.id:
             raise Denial(
                 ErrorCode.COMPOSITION_INVALID,
@@ -113,7 +119,7 @@ class Verifier:
 
             # The domain catalog comes from the stage package, never from the goal text,
             # so a persuasive goal cannot widen what an agent may call.
-            if name not in domain.catalog:
+            if name not in domain.catalog and name not in granted:
                 raise Denial(
                     ErrorCode.COMPOSITION_INVALID,
                     f"operator {name} is outside the catalog for domain {domain.id}",

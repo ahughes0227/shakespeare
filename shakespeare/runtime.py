@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
+from .admission import AdmissionService
 from .agent import DomainAgent
 from .audit import AuditStore
 from .compose import catalog as hydra_catalog
@@ -19,6 +20,7 @@ from .compose import compose
 from .contracts import (
     ChangePlan,
     Composition,
+    DomainSpec,
     ErrorCode,
     Obligation,
     ObligationResult,
@@ -91,6 +93,12 @@ class Runtime:
     tracer: Tracer | None = None
     prompts: PromptStore = field(default_factory=PromptStore)
     config_root: str | None = None
+    #: Optional. Without it a subagent's operator request is recorded and refused rather
+    #: than evaluated, which is the right default for an unattended run.
+    admission: AdmissionService | None = None
+    #: Operators admitted during this run, per domain. Populated only by a completed
+    #: admission decision, never by an agent.
+    grants: dict[str, set[str]] = field(default_factory=dict)
 
     # -- entry point --------------------------------------------------------------------
 
@@ -260,8 +268,11 @@ class Runtime:
                     budget=budget,
                     stage=stage.name,
                     attempt=attempt,
+                    granted=frozenset(self.grants.get(domain.id, set())),
                 )
                 results[domain.id] = produced
+                if composition.ask is not None:
+                    self._handle_ask(composition.ask, domain=domain, run_id=run_id)
                 compositions.append((composition, [item.journal_row() for item in produced]))
                 for item in produced:
                     if item.output:
@@ -325,6 +336,48 @@ class Runtime:
 
         assert outcome is not None
         return outcome
+
+    def _handle_ask(self, ask: Any, *, domain: DomainSpec, run_id: str) -> None:
+        """Evaluate a subagent's operator request after its composition has run.
+
+        Deliberately after: a subagent never observes its own results, so an admitted
+        operator becomes usable on the next attempt rather than mid-composition. That
+        keeps the compose-once rule intact while still letting a run recover.
+        """
+        from .contracts import AdmissionChoice, AdmissionDisposition, DecidedBy, OperatorRequest
+
+        request = OperatorRequest(
+            request_id=uuid4().hex,
+            run_id=run_id,
+            domain_id=domain.id,
+            kind=ask.kind,
+            family=ask.family,
+            name=ask.name,
+            features=ask.features,
+            dependencies=ask.dependencies,
+            declared_side_effects=ask.declared_side_effects,
+            rationale=ask.rationale,
+        )
+        if self.admission is None:
+            # Recording it still matters: the request is evidence of a gap in the
+            # stage package, which is a human's problem to look at later.
+            self.audit.record_operator_request(request)
+            return
+
+        report, candidate = self.admission.evaluate(request)
+        if report.disposition is not AdmissionDisposition.AUTO_ADMIT:
+            # Escalated. The run continues without the operator; a person decides later
+            # through `shakespeare requests`.
+            return
+
+        self.admission.decide(
+            report,
+            candidate,
+            decided_by=DecidedBy.PLANNER,
+            choice=AdmissionChoice.APPROVE,
+            rationale="auto-admitted: low-risk declarative variant",
+        )
+        self.grants.setdefault(domain.id, set()).add(candidate.spec.name)
 
     # -- commit -------------------------------------------------------------------------
 

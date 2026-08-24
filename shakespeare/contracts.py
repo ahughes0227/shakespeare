@@ -234,12 +234,32 @@ class Invocation(Contract):
         return value
 
 
+class OperatorAsk(Contract):
+    """A subagent's request for an operator it does not have.
+
+    Note what it cannot set: no ids, no version, no entrypoint, no risk. Those are
+    stamped by the runtime or computed by admission, so a request describes a need and
+    never asserts an authority.
+    """
+
+    kind: RequestKind
+    family: OperatorFamily
+    name: str = Field(min_length=1)
+    features: frozenset[str] = frozenset()
+    dependencies: tuple[str, ...] = ()
+    declared_side_effects: tuple[str, ...] = ()
+    rationale: str = Field(min_length=1)
+
+
 class Composition(Contract):
     """The entire output surface of a domain subagent."""
 
     domain_id: str = Field(min_length=1)
     invocations: tuple[Invocation, ...]
     rationale: str = ""
+    #: An operator the subagent lacked. Evaluated after this composition runs, so an
+    #: admitted operator is usable from the next attempt onward — never mid-composition.
+    ask: OperatorAsk | None = None
 
     @model_validator(mode="after")
     def _validate(self) -> Composition:
