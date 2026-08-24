@@ -171,16 +171,16 @@ class Runtime:
                     break
         except Denial as denial:
             mutation.discard(staging)
-            outcome = (
+            denial_outcome = (
                 "aborted" if denial.code is ErrorCode.ATTEMPTS_EXHAUSTED else "denied"
             )
             self.audit.record_run_outcome(
-                run_id=run_id, outcome=outcome, error_code=str(denial.code)
+                run_id=run_id, outcome=denial_outcome, error_code=str(denial.code)
             )
             return RunResult(
                 run_id=run_id,
                 workflow_id=workflow.spec.id,
-                outcome=outcome,
+                outcome=denial_outcome,
                 stages=tuple(outcomes),
                 error_code=denial.code,
                 detail=denial.reason,
