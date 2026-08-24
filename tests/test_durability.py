@@ -1,0 +1,306 @@
+"""Durability, cost reconciliation, the OCR rerun case, and the live lane.
+
+The remaining verification items from the plan.
+"""
+
+from __future__ import annotations
+
+import os
+from pathlib import Path
+
+import pytest
+from shakespeare.agent import FakeDomainAgent
+from shakespeare.audit import AuditStore
+from shakespeare.contracts import (
+    BudgetEnvelope,
+    Composition,
+    Invocation,
+    StageDecision,
+    StagePlan,
+)
+from shakespeare.executor import Budget, Executor
+from shakespeare.graph import WorkflowGraph, sqlite_checkpointer
+from shakespeare.operators.builtin import build_registry
+from shakespeare.planner import FakePlanner
+from shakespeare.runtime import Runtime
+from shakespeare.stages import StageRegistry
+from shakespeare.telemetry import RecordingExporter, Tracer
+from shakespeare.verifier import Verifier
+from shakespeare.workflows import WorkflowRegistry
+
+from harness import goal
+from test_rename_files import INVOICES, _values, build, build_agents, seed_invoices
+
+
+def _revive(
+    tmp_path: Path, request, *, audit_path: Path | None = None
+) -> tuple[Runtime, AuditStore]:
+    """A runtime built fresh, reading the audit log from disk rather than from memory."""
+    source = seed_invoices(tmp_path / "in", INVOICES)
+    operators = build_registry()
+    verifier = Verifier(operators)
+    stages = StageRegistry()
+    tracer = Tracer("revived", [RecordingExporter()])
+    audit = AuditStore(audit_path or (tmp_path / "audit.sqlite3"))
+
+    from test_rename_files import build_planner
+
+    return (
+        Runtime(
+            operators=operators,
+            stages=stages,
+            workflows=WorkflowRegistry(stages=stages, operators=operators),
+            verifier=verifier,
+            executor=Executor(operators, verifier, tracer=tracer),
+            planner=build_planner(),
+            agents=build_agents(_values(source, INVOICES)),
+            audit=audit,
+            workspace_root=tmp_path / "work",
+            tracer=tracer,
+        ),
+        audit,
+    )
+
+
+class TestDurability:
+    def test_a_run_resumes_from_persisted_state_in_a_new_process_image(
+        self, tmp_path: Path
+    ) -> None:
+        """Resume through the checkpoint file, not through objects held in memory.
+
+        The second half uses a fresh runtime, a fresh graph and a fresh checkpointer
+        connection, so nothing but the SQLite file carries the run forward — which is what
+        surviving a killed process actually means.
+        """
+        from shakespeare.graph import run_with_graph
+
+        runtime, request, audit, _ = build(tmp_path)
+        checkpoint = tmp_path / "checkpoints.sqlite3"
+        with sqlite_checkpointer(checkpoint) as saver:
+            state, first_graph, run_id = run_with_graph(runtime, request, checkpointer=saver)
+            assert "__interrupt__" in state
+        assert not Path(request.output_root).exists()
+
+        # Everything from the first half is now discarded.
+        del first_graph, runtime, state
+        audit.close()
+
+        revived_runtime, revived_audit = _revive(tmp_path, request)
+        revived = WorkflowGraph(
+            runtime=revived_runtime,
+            workflow=revived_runtime.workflows.get("rename_files"),
+            request=request,
+            staging=(tmp_path / "work" / run_id / "staging"),
+            workspace=tmp_path / "work" / run_id,
+        )
+        with sqlite_checkpointer(checkpoint) as saver:
+            from langgraph.types import Command
+
+            compiled = revived.build(saver)
+            final = compiled.invoke(
+                Command(resume=True), {"configurable": {"thread_id": run_id}}
+            )
+
+        assert final["outcome"] == "committed"
+        assert (Path(request.output_root) / "2024" / "q1").is_dir()
+        revived_audit.close()
+
+    def test_resume_requires_the_same_audit_log_not_just_the_checkpoint(
+        self, tmp_path: Path
+    ) -> None:
+        """A resumed run writes facts about a run_id that lives in the original log.
+
+        Pointing a resume at a fresh audit database fails on the foreign key, which is
+        the right answer: the checkpoint carries the work, the audit log carries the
+        history, and a resume needs both.
+        """
+        import sqlalchemy.exc
+        from shakespeare.graph import run_with_graph
+
+        runtime, request, audit, _ = build(tmp_path)
+        checkpoint = tmp_path / "cp.sqlite3"
+        with sqlite_checkpointer(checkpoint) as saver:
+            _, _, run_id = run_with_graph(runtime, request, checkpointer=saver)
+        audit.close()
+
+        stranded, stranded_audit = _revive(tmp_path, request, audit_path=tmp_path / "other.db")
+        graph = WorkflowGraph(
+            runtime=stranded,
+            workflow=stranded.workflows.get("rename_files"),
+            request=request,
+            staging=tmp_path / "work" / run_id / "staging",
+            workspace=tmp_path / "work" / run_id,
+        )
+        with sqlite_checkpointer(checkpoint) as saver:
+            from langgraph.types import Command
+
+            compiled = graph.build(saver)
+            with pytest.raises(sqlalchemy.exc.IntegrityError):
+                compiled.invoke(Command(resume=True), {"configurable": {"thread_id": run_id}})
+        stranded_audit.close()
+
+    def test_the_audit_log_holds_no_partial_facts_after_an_interrupt(
+        self, tmp_path: Path
+    ) -> None:
+        """A suspended run must leave completed facts only, never half-written ones."""
+        from shakespeare.audit import schema
+        from shakespeare.graph import run_with_graph
+        from sqlalchemy import select
+
+        runtime, request, audit, _ = build(tmp_path)
+        with sqlite_checkpointer(tmp_path / "cp.sqlite3") as saver:
+            run_with_graph(runtime, request, checkpointer=saver)
+
+        with audit.engine.begin() as connection:
+            attempts = connection.execute(select(schema.stage_attempts)).mappings().all()
+            commits = connection.execute(select(schema.commits)).mappings().all()
+            verdicts = connection.execute(select(schema.stage_verdicts)).mappings().all()
+
+        assert attempts, "stages that completed must be recorded"
+        assert len(verdicts) == len(attempts), "every recorded attempt carries its verdict"
+        assert not commits, "nothing may be recorded as committed before approval"
+        audit.close()
+
+
+class TestCostReconciliation:
+    def test_journal_costs_matches_what_was_metered(self, tmp_path: Path) -> None:
+        """`journal costs` is the bill; the budget is the meter. They must agree."""
+        audit = AuditStore(tmp_path / "audit.sqlite3")
+        audit.record_run(
+            run_id="r",
+            workflow_id="w",
+            workflow_version="1.0.0",
+            workflow_digest="d",
+            request_digest="q",
+            input_root_digest="i",
+        )
+        budget = Budget(envelope=BudgetEnvelope(model_invocations="10"), items=0)
+        charges = [("planner", 0.011, 120, 40), ("domain", 0.004, 90, 30), ("domain", 0.002, 10, 5)]
+        for role, cost, prompt_tokens, completion_tokens in charges:
+            budget.consume_model_invocation(tokens=prompt_tokens + completion_tokens, cost_usd=cost)
+            audit.record_model_invocation(
+                run_id="r",
+                role=role,
+                profile_id="p",
+                requested_model="openrouter/openai/gpt-5-mini",
+                prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
+                cost_usd=cost,
+            )
+
+        costs = audit.costs("r")
+        assert costs["model_invocations"] == budget.usage.model_invocations
+        assert costs["cost_usd"] == pytest.approx(budget.usage.cost_usd)
+        assert costs["prompt_tokens"] + costs["completion_tokens"] == budget.usage.total_tokens
+        assert costs["by_role"]["domain"] == pytest.approx(0.006)
+        audit.close()
+
+
+class TestOcrRerunCase:
+    """The plan's named rerun case: extraction unavailable for part of the set."""
+
+    def _agents(self, items: list[dict[str, object]], *, starve: bool) -> dict[str, object]:
+        agents = build_agents(items)
+        if starve:
+            # An extract composition that produces no extractions at all, so the
+            # every_item_has_text_or_reason obligation has no evidence and fails closed.
+            agents["content_acquisition"] = FakeDomainAgent().queue(
+                "content_acquisition",
+                Composition(
+                    domain_id="content_acquisition",
+                    invocations=(
+                        Invocation(
+                            invocation_id="dirs", operator="text.normalize",
+                            parameters={"values": {"probe": "x"}},
+                        ),
+                    ),
+                ),
+            )
+        return agents
+
+    def _planner(self) -> FakePlanner:
+        from test_rename_files import build_planner
+
+        planner = build_planner()
+        # Two distinct plans, because a rerun repeating the previous one is refused.
+        planner.stage_plans["extract"] = [
+            StagePlan(activated=(goal("content_acquisition"),)),
+            StagePlan(
+                activated=(
+                    goal("content_acquisition", "retry the items that returned no text"),
+                )
+            ),
+        ]
+        return planner
+
+    def test_a_failed_extraction_reruns_then_aborts_without_output(
+        self, tmp_path: Path
+    ) -> None:
+        source = seed_invoices(tmp_path / "in", INVOICES)
+        agents = self._agents(_values(source, INVOICES), starve=True)
+        runtime, request, audit, _ = build(tmp_path, planner=self._planner(), agents=agents)
+
+        result = runtime.run(request)
+        assert result.outcome == "aborted", result.detail
+        assert not Path(request.output_root).exists(), "an aborted run leaves nothing behind"
+
+        attempts = audit.dag(result.run_id, "extract")["attempts"]
+        assert len(attempts) == 2, "both attempts must be journaled, including the failure"
+        assert attempts[0]["verdict"]["decision"] == "rerun"
+        audit.close()
+
+    def test_the_obligation_is_what_fails_it(self, tmp_path: Path) -> None:
+        source = seed_invoices(tmp_path / "in", INVOICES)
+        agents = self._agents(_values(source, INVOICES), starve=True)
+        runtime, request, audit, _ = build(tmp_path, planner=self._planner(), agents=agents)
+        result = runtime.run(request)
+
+        extract = next(o for o in result.stages if o.stage.name == "extract")
+        assert "every_item_has_text_or_reason" in extract.verdict.unmet
+        assert extract.verdict.decision is not StageDecision.ACCEPT
+        audit.close()
+
+
+@pytest.mark.skipif(
+    os.environ.get("SHAKESPEARE_LIVE") != "1",
+    reason="live lane: set SHAKESPEARE_LIVE=1 and SHAKESPEARE_MODEL to run",
+)
+class TestLiveSmoke:
+    """Opt-in, and skipped by default so it can never be mistaken for coverage.
+
+    This is the only test that spends money. It exercises the real planner and real
+    domain agents against a real provider over the fixture tree.
+    """
+
+    def test_a_real_model_produces_a_balanced_plan(self, tmp_path: Path) -> None:
+        from shakespeare.bootstrap import build_runtime
+        from shakespeare.contracts import RequestContract
+
+        from fixtures.build import build_tree, cleanup
+
+        source = tmp_path / "invoices"
+        build_tree(source)
+        try:
+            services = build_runtime(state_root=tmp_path / "state")
+            result = services.runtime.run(
+                RequestContract(
+                    request_id="live",
+                    prompt=(
+                        "rename these invoices to YYYYMM, vendor, invoice number, PO number"
+                    ),
+                    input_root=str(source),
+                    output_root=str(tmp_path / "out"),
+                ),
+                commit=False,
+            )
+            assert result.plan is not None, result.detail
+            scanned = sum(1 for path in source.rglob("*") if path.is_file())
+            assert result.plan.balanced(scanned), "the plan must account for every file"
+            print("\nfrozen convention and decisions:")
+            for entry in result.plan.entries:
+                print(f"  {entry.action:11} {entry.source_ref} -> "
+                      f"{getattr(entry, 'target_relpath', None) or entry.reason}")
+            print(services.audit.costs(result.run_id))
+            services.audit.close()
+        finally:
+            cleanup(source)
