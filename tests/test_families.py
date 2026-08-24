@@ -1,0 +1,155 @@
+"""Family manifests.
+
+`family.yml` and `family-context.yml` were written but never read, which meant
+`allowed_features` bounded nothing and a family could ship an incomplete card unnoticed —
+as `filesystem_mutation` had been doing since it was written.
+"""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+import pytest
+import yaml
+from shakespeare import families
+from shakespeare.contracts import OperatorFamily, SemanticCard
+from shakespeare.registry import FAMILY_RUNNERS
+
+
+class TestManifests:
+    def test_every_family_has_a_manifest_and_a_complete_card(self) -> None:
+        loaded = families.load_all()
+        assert set(loaded) == set(OperatorFamily)
+        for family, (manifest, card) in loaded.items():
+            assert manifest.allowed_features, f"{family} declares no configuration slots"
+            for field in SemanticCard.model_fields:
+                assert getattr(card, field).strip(), f"{family} card field {field} is empty"
+
+    def test_a_manifest_pins_its_trusted_runner(self) -> None:
+        for family in OperatorFamily:
+            assert families.manifest(family).entrypoint == FAMILY_RUNNERS[family]
+
+    def test_an_incomplete_card_is_refused(self, tmp_path: Path) -> None:
+        root = tmp_path / "templates"
+        for family in OperatorFamily:
+            directory = root / family
+            directory.mkdir(parents=True)
+            (directory / "family.yml").write_text(
+                yaml.safe_dump(
+                    {"family": str(family), "revision": "1.0", "allowed_features": ["a"]}
+                )
+            )
+            card = {name: "filled" for name in SemanticCard.model_fields}
+            if family is OperatorFamily.PURE_TRANSFORM:
+                card.pop("side_effects")  # the defect this check exists to catch
+            (directory / "family-context.yml").write_text(yaml.safe_dump(card))
+
+        families.load_all.cache_clear()
+        with pytest.raises(families.FamilyError, match="all ten fields"):
+            families.load_all(str(root))
+        families.load_all.cache_clear()
+
+    def test_a_manifest_in_the_wrong_directory_is_refused(self, tmp_path: Path) -> None:
+        root = tmp_path / "templates"
+        for family in OperatorFamily:
+            directory = root / family
+            directory.mkdir(parents=True)
+            declared = (
+                OperatorFamily.READONLY_SCAN
+                if family is OperatorFamily.PURE_TRANSFORM
+                else family
+            )
+            (directory / "family.yml").write_text(
+                yaml.safe_dump(
+                    {"family": str(declared), "revision": "1.0", "allowed_features": ["a"]}
+                )
+            )
+            (directory / "family-context.yml").write_text(
+                yaml.safe_dump({name: "filled" for name in SemanticCard.model_fields})
+            )
+        families.load_all.cache_clear()
+        with pytest.raises(families.FamilyError, match="but lives in"):
+            families.load_all(str(root))
+        families.load_all.cache_clear()
+
+
+class TestFeatureBounds:
+    def test_a_declared_slot_is_accepted(self) -> None:
+        families.check_features(OperatorFamily.PURE_TRANSFORM, frozenset({"normalize"}))
+
+    def test_an_undeclared_slot_is_refused(self) -> None:
+        """Otherwise allowed_features is decoration and a request may name any slot."""
+        with pytest.raises(families.FamilyError, match="does not allow"):
+            families.check_features(OperatorFamily.PURE_TRANSFORM, frozenset({"exec_shell"}))
+
+    def test_a_slot_from_another_family_is_refused(self) -> None:
+        with pytest.raises(families.FamilyError, match="does not allow"):
+            families.check_features(OperatorFamily.PURE_TRANSFORM, frozenset({"atomic_move"}))
+
+    def test_no_features_is_allowed(self) -> None:
+        families.check_features(OperatorFamily.READONLY_SCAN, frozenset())
+
+
+class TestMarkerVerification:
+    def _package(self, tmp_path: Path, family: str, revision: str) -> Path:
+        package = tmp_path / "pkg"
+        package.mkdir()
+        (package / ".operator-template.yml").write_text(
+            yaml.safe_dump({"family": family, "revision": revision})
+        )
+        return package
+
+    def test_a_matching_marker_is_accepted(self, tmp_path: Path) -> None:
+        package = self._package(tmp_path, "pure_transform", "1.0")
+        families.verify_marker(package, OperatorFamily.PURE_TRANSFORM)
+
+    def test_a_mismatched_family_is_refused(self, tmp_path: Path) -> None:
+        """A package could otherwise claim any family it liked."""
+        package = self._package(tmp_path, "pure_transform", "1.0")
+        with pytest.raises(families.FamilyError, match="but was rendered as"):
+            families.verify_marker(package, OperatorFamily.READONLY_SCAN)
+
+    def test_a_stale_revision_is_refused(self, tmp_path: Path) -> None:
+        package = self._package(tmp_path, "pure_transform", "0.9")
+        with pytest.raises(families.FamilyError, match="revision"):
+            families.verify_marker(package, OperatorFamily.PURE_TRANSFORM)
+
+    def test_a_missing_marker_is_refused(self, tmp_path: Path) -> None:
+        package = tmp_path / "empty"
+        package.mkdir()
+        with pytest.raises(families.FamilyError, match="no .operator-template.yml"):
+            families.verify_marker(package, OperatorFamily.PURE_TRANSFORM)
+
+
+class TestAdmissionEnforcesFeatures:
+    def test_a_request_naming_an_undeclared_slot_escalates(self, tmp_path: Path) -> None:
+        from shakespeare.admission import AdmissionService
+        from shakespeare.audit import AuditStore
+        from shakespeare.contracts import AdmissionDisposition, OperatorRequest, RequestKind
+        from shakespeare.operators.builtin import build_registry
+
+        from test_admission import StubRenderer, passing_tests
+
+        audit = AuditStore(tmp_path / "audit.sqlite3")
+        service = AdmissionService(
+            registry=build_registry(),
+            audit=audit,
+            workspace=tmp_path / "candidates",
+            renderer=StubRenderer(),
+            test_runner=passing_tests,
+        )
+        report, _ = service.evaluate(
+            OperatorRequest(
+                request_id="r",
+                run_id="run",
+                domain_id="d",
+                kind=RequestKind.VARIANT,
+                family=OperatorFamily.PURE_TRANSFORM,
+                name="text.sneak",
+                features=frozenset({"normalize", "exec_shell"}),
+                rationale="needs a shell",
+            )
+        )
+        assert report.disposition is AdmissionDisposition.HUMAN_REVIEW
+        assert any(f.code == "feature_not_allowed" for f in report.findings)
+        audit.close()

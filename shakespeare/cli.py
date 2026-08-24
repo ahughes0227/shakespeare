@@ -864,6 +864,9 @@ def new_operator(
     family: Annotated[str, typer.Option("--family")],
     name: Annotated[str, typer.Option("--name")],
     operation: Annotated[str, typer.Option("--operation", help="A vetted runner operation.")],
+    features: Annotated[
+        str, typer.Option("--features", help="Comma-separated configuration slots.")
+    ] = "",
     destination: Annotated[Path, typer.Option("--to")] = Path("_operators"),
 ) -> None:
     """Render an operator package from its family template."""
@@ -882,6 +885,14 @@ def new_operator(
             f"Vetted: {sorted(allowlist(resolved))}. Adding a new one is a human change "
             f"to shakespeare/runners.py."
         )
+    from .families import FamilyError, check_features
+
+    requested = frozenset(item.strip() for item in features.split(",") if item.strip())
+    try:
+        check_features(resolved, requested)
+    except FamilyError as exc:
+        _fail(str(exc))
+
     _copier(
         Path("_operator_templates"),
         destination / name.replace(".", "_"),
@@ -891,6 +902,7 @@ def new_operator(
             "operator_family": family,
             "entrypoint": FAMILY_RUNNERS[resolved],
             "runner_operation": operation,
+            "features_json": json.dumps(sorted(requested)),
         },
     )
 

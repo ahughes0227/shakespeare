@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Protocol
 from uuid import uuid4
 
+from . import families
 from .audit import AuditStore
 from .contracts import (
     AUTO_ADMISSIBLE_FAMILIES,
@@ -68,6 +69,10 @@ class CopierRenderer:
     def render(self, request: OperatorRequest, destination: Path) -> str:
         import copier
 
+        # Before rendering: a feature outside the family's declared slots must never
+        # reach the template, or `allowed_features` bounds nothing.
+        families.check_features(request.family, request.features)
+
         data = {
             "operator_name": request.name,
             "operator_summary": request.rationale[:120],
@@ -86,6 +91,13 @@ class CopierRenderer:
             )
         except Exception as exc:  # noqa: BLE001 - a template failure is a finding
             raise AdmissionError(f"copier failed: {type(exc).__name__}: {exc}") from exc
+
+        # After rendering: the marker ties the package to the template that produced it.
+        # Rendering one and never checking it lets a package claim any family it likes.
+        try:
+            families.verify_marker(destination, request.family)
+        except families.FamilyError as exc:
+            raise AdmissionError(str(exc)) from exc
         return digest_tree(destination)
 
 
@@ -162,6 +174,11 @@ class AdmissionService:
                     message=f"{request.name} is already a registered operator",
                 )
             )
+
+        try:
+            families.check_features(request.family, request.features)
+        except families.FamilyError as exc:
+            findings.append(AdmissionFinding(code="feature_not_allowed", message=str(exc)))
 
         untrusted = sorted(set(request.dependencies) - self.trusted_dependencies)
         if untrusted:
