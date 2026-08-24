@@ -51,6 +51,7 @@ include = ["shakespeare*"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = ["--strict-config", "--strict-markers"]
+pythonpath = ["tests"]
 
 [tool.ruff]
 target-version = "py312"

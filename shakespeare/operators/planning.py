@@ -58,8 +58,9 @@ def assemble_plan(
     workflow_digest: str,
     decision_digest: str,
     scanned: tuple[ScannedItem, ...],
-    planned: tuple[PlannedName, ...],
+    planned: tuple[PlannedName, ...] = (),
     operator_versions: dict[str, str] | None = None,
+    default_action: ChangeAction = ChangeAction.UNRESOLVED,
 ) -> ChangePlan:
     """Build a plan and refuse to return an unbalanced one."""
     by_item = {item.item_id: item for item in planned}
@@ -75,9 +76,13 @@ def assemble_plan(
                 RenameEntry(
                     item_id=item.item_id,
                     source_ref=item.relpath,
-                    action=ChangeAction.UNRESOLVED,
-                    reason="no_decision",
+                    action=default_action,
+                    reason="" if default_action is ChangeAction.UNCHANGED else "no_decision",
+                    target_relpath=(
+                        item.relpath if default_action is ChangeAction.UNCHANGED else None
+                    ),
                     source_sha256=item.sha256,
+                    digests={"source": item.sha256},
                 )
             )
             continue
@@ -186,7 +191,7 @@ def check_every_item_has_text_or_reason(
 ) -> ObligationResult:
     offenders = [
         item["item_id"]
-        for item in payload.get("items", [])
+        for item in payload.get("extractions", [])
         if not item.get("text") and not item.get("unavailable_reason")
     ]
     return _result(obligation_id, not offenders, without_text_or_reason=offenders[:20])
@@ -242,9 +247,29 @@ CHECKS = {
 }
 
 
+#: The payload keys each checker needs.  A missing key means the evidence was never
+#: produced, and an unevaluated obligation must never read as a satisfied one.
+CHECK_REQUIREMENTS: dict[str, tuple[str, ...]] = {
+    "balanced": ("entries", "scanned"),
+    "no_collisions": ("entries",),
+    "resolved_or_quarantined": ("entries",),
+    "every_item_has_text_or_reason": ("extractions",),
+    "spec_frozen": ("spec", "digest"),
+    "rendered_mechanically": ("comparisons",),
+    "structure_mirrors": ("expected_dirs", "actual_dirs"),
+}
+
+
+def missing_evidence(check: str, payload: dict[str, Any]) -> tuple[str, ...]:
+    return tuple(key for key in CHECK_REQUIREMENTS.get(check, ()) if key not in payload)
+
+
 def run_check(obligation_id: str, check: str, payload: dict[str, Any]) -> ObligationResult:
     try:
         checker = CHECKS[check]
     except KeyError as exc:
         raise AssemblyError(f"unknown obligation check: {check}") from exc
+    absent = missing_evidence(check, payload)
+    if absent:
+        return _result(obligation_id, False, missing_evidence=list(absent))
     return checker(obligation_id, payload)

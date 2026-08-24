@@ -211,6 +211,20 @@ class Invocation(Contract):
     parameters: dict[str, Any] = Field(default_factory=dict)
     #: Stage input names, or `invocation_id`s of earlier invocations in this composition.
     inputs: tuple[str, ...] = ()
+    #: Rename resolved keys: {argument_name: source_key}.  Lets an agent wire one
+    #: operator's output onto the next operator's parameter without either having to
+    #: agree on vocabulary in advance.
+    bindings: dict[str, str] = Field(default_factory=dict)
+
+    @field_validator("bindings")
+    @classmethod
+    def _identifier_keys(cls, value: dict[str, str]) -> dict[str, str]:
+        for target, source in value.items():
+            if not target.isidentifier():
+                raise ValueError(f"binding target must be an identifier: {target}")
+            if not all(part.isidentifier() for part in source.split(".")):
+                raise ValueError(f"binding source must be a dotted identifier: {source}")
+        return value
 
 
 class Composition(Contract):

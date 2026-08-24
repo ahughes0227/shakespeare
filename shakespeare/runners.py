@@ -15,7 +15,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from .contracts import ChangePlan, OperatorFamily, ReversalRecord
+from .contracts import ChangeAction, ChangePlan, OperatorFamily, ReversalRecord
 from .operators import extraction, filesystem, mutation, naming, planning, text
 
 Operation = Callable[[dict[str, Any], Path], dict[str, Any]]
@@ -93,7 +93,7 @@ def _extract(arguments: dict[str, Any], workspace: Path) -> dict[str, Any]:
         for item in arguments["items"]
     ]
     return {
-        "items": [item.model_dump(mode="json") for item in results],
+        "extractions": [item.model_dump(mode="json") for item in results],
         "usable": sum(1 for item in results if item.usable),
         "unavailable": sum(1 for item in results if not item.usable),
     }
@@ -159,10 +159,20 @@ def _plan_assemble(arguments: dict[str, Any], workspace: Path) -> dict[str, Any]
         workflow_digest=arguments["workflow_digest"],
         decision_digest=arguments["decision_digest"],
         scanned=tuple(planning.ScannedItem.model_validate(i) for i in arguments["scanned"]),
-        planned=tuple(planning.PlannedName.model_validate(i) for i in arguments["planned"]),
+        planned=tuple(
+            planning.PlannedName.model_validate(i) for i in arguments.get("planned") or ()
+        ),
         operator_versions=arguments.get("operator_versions"),
+        default_action=ChangeAction(arguments.get("default_action", "unresolved")),
     )
-    return {"plan": plan.model_dump(mode="json")}
+    payload = plan.model_dump(mode="json")
+    return {
+        "plan": payload,
+        # Published as evidence so `balanced` and `resolved_or_quarantined` can be checked
+        # without the runtime knowing anything about plans.
+        "entries": payload["entries"],
+        "scanned": len(arguments["scanned"]),
+    }
 
 
 def _obligation_check(arguments: dict[str, Any], workspace: Path) -> dict[str, Any]:

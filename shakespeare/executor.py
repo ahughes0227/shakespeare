@@ -216,6 +216,26 @@ class Executor:
                     error_detail=f"unresolved input reference: {reference}",
                 )
 
+        for target, source in invocation.bindings.items():
+            if "." in source:
+                origin, _, key = source.partition(".")
+                nested = prior.get(origin, {})
+                if key in nested:
+                    arguments[target] = nested[key]
+                    continue
+            if source not in arguments:
+                return InvocationResult(
+                    invocation_id=invocation.invocation_id,
+                    operator=invocation.operator,
+                    operator_version=spec.version,
+                    succeeded=False,
+                    started_at=started_at,
+                    ended_at=_isoformat(time.time()),
+                    error_code=ErrorCode.COMPOSITION_INVALID,
+                    error_detail=f"binding {target}={source} has no resolved source",
+                )
+            arguments[target] = arguments[source]
+
         span = (
             self.tracer.span(
                 f"operator.{invocation.operator}",
