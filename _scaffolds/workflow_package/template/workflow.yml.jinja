@@ -1,0 +1,12 @@
+id: {{ workflow_id }}
+version: "{{ workflow_version }}"
+# An ordered spine of version-pinned stages. A new stage is needed wherever the previous
+# stage's output must be transformed or verified by a model.
+#
+# Registration type-checks this: stage N's output_contract must equal stage N+1's
+# input_contract, every ref must resolve, every catalog operator must be registered, and
+# no domain catalog may contain a mutation operator.
+spine:
+  - TODO_stage@1.0.0
+commit_after: TODO_stage
+entry_contract: RequestContract

@@ -1,0 +1,11 @@
+"""Tests for the {{ workflow_id }} workflow."""
+
+from shakespeare.operators.builtin import build_registry
+from shakespeare.stages import StageRegistry
+from shakespeare.workflows import WorkflowRegistry
+
+
+def test_spine_type_checks():
+    stages = StageRegistry()
+    registry = WorkflowRegistry(stages=stages, operators=build_registry())
+    assert "{{ workflow_id }}" in registry.ids()

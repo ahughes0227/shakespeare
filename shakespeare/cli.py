@@ -7,7 +7,6 @@ of its own and a GUI can be layered on later without a second one.
 from __future__ import annotations
 
 import json
-import subprocess
 from pathlib import Path
 from typing import Annotated
 from uuid import uuid4
@@ -370,16 +369,23 @@ def new_workflow(workflow_id: Annotated[str, typer.Option("--id")]) -> None:
 
 
 def _copier(template: Path, destination: Path, data: dict[str, str]) -> None:
+    """Render through Copier's Python API rather than its console script.
+
+    Shelling out would depend on `copier` being on PATH, which it is not when the CLI
+    runs from a virtualenv that was not activated.
+    """
+    import copier
+
     if not template.is_dir():
         _fail(f"template not found: {template} (run from the repository root)")
     if destination.exists():
         _fail(f"destination already exists: {destination}")
-    command = ["copier", "copy", "--defaults", str(template), str(destination)]
-    for key, value in data.items():
-        command += ["--data", f"{key}={value}"]
-    result = subprocess.run(command, capture_output=True, text=True)
-    if result.returncode != 0:
-        _fail(f"copier failed: {result.stderr.strip() or result.stdout.strip()}")
+    try:
+        copier.run_copy(
+            str(template), str(destination), data=data, defaults=True, quiet=True, unsafe=False
+        )
+    except Exception as exc:  # noqa: BLE001 - report template errors, do not traceback
+        _fail(f"copier failed: {type(exc).__name__}: {exc}")
     console.print(f"[green]Rendered[/green] {destination}")
 
 

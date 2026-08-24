@@ -1,0 +1,14 @@
+"""Tests for the {{ stage_name }} stage package."""
+
+from shakespeare.stages import StageRegistry
+
+
+def test_stage_registers():
+    spec = StageRegistry().get("{{ stage_name }}@{{ stage_version }}")
+    assert spec.domains, "a stage needs at least one domain"
+
+
+def test_every_domain_has_a_catalog():
+    spec = StageRegistry().get("{{ stage_name }}@{{ stage_version }}")
+    for domain in spec.domains:
+        assert domain.catalog, f"{domain.id} grants no operators"

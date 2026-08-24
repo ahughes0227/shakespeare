@@ -71,7 +71,13 @@ class WorkflowRegistry:
 
     def _load_one(self, manifest: Path) -> None:
         directory = manifest.parent
-        spec = WorkflowSpec.model_validate(yaml.safe_load(manifest.read_text()) or {})
+        try:
+            spec = WorkflowSpec.model_validate(yaml.safe_load(manifest.read_text()) or {})
+        except Exception as exc:
+            raise WorkflowRegistryError(
+                f"{manifest} is not a usable workflow package ({type(exc).__name__}: {exc}). "
+                f"A freshly scaffolded workflow needs its TODOs filled in before it will load."
+            ) from exc
         if spec.id != directory.name:
             raise WorkflowRegistryError(
                 f"{manifest}: declares id {spec.id} but lives in {directory.name}"

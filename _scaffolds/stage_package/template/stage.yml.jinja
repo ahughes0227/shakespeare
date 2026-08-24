@@ -1,0 +1,29 @@
+name: {{ stage_name }}
+version: "{{ stage_version }}"
+purpose: "{{ stage_purpose }}"
+# The goal is what the planner reviews the stage against. State what must be TRUE when
+# the stage is done, not how to get there.
+goal: "TODO: state a verifiable outcome."
+input_contract: {{ input_contract }}
+output_contract: {{ output_contract }}
+max_attempts: 2
+domains:
+  # A domain is a TYPE of work available here. Its scope is immutable; the planner issues
+  # a per-run goal inside it. The catalog and config_groups are the whole surface a
+  # subagent may compose from — a goal can never widen them.
+  - id: TODO_domain
+    scope: "TODO: the kind of work this domain covers."
+    # Mark false for anything the planner must never plan away (safety, commit gating).
+    skippable: true
+    catalog: []
+    config_groups: []
+    prompt_version: "1.0.0"
+# Deterministic checks that must hold at this stage's output. Names come from
+# shakespeare.operators.planning.CHECKS.
+obligations: []
+budget:
+  # Per-item allowances: "base" or "base + per_item*n". File counts are unbounded.
+  operator_calls: "8 + 2*n"
+  model_invocations: "4"
+  wall_time_seconds: 1800
+side_effects: []

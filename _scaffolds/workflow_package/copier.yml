@@ -1,0 +1,9 @@
+_subdirectory: template
+_answers_file: .copier-answers.yml
+
+workflow_id:
+  type: str
+  help: Workflow id, lower_snake_case
+workflow_version:
+  type: str
+  default: "1.0.0"

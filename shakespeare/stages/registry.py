@@ -40,8 +40,14 @@ class StageRegistry:
         directory = manifest.parent
         name, version = directory.parent.name, directory.name
 
-        payload = yaml.safe_load(manifest.read_text()) or {}
-        spec = StageSpec.model_validate(payload)
+        try:
+            payload = yaml.safe_load(manifest.read_text()) or {}
+            spec = StageSpec.model_validate(payload)
+        except Exception as exc:
+            raise StageRegistryError(
+                f"{manifest} is not a usable stage package ({type(exc).__name__}: {exc}). "
+                f"A freshly scaffolded stage needs its TODOs filled in before it will load."
+            ) from exc
         if (spec.name, spec.version) != (name, version):
             raise StageRegistryError(
                 f"{manifest}: declares {spec.name}@{spec.version} but lives at {name}/{version}"

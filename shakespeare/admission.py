@@ -66,27 +66,26 @@ class CopierRenderer:
     template_root: Path = Path("_operator_templates")
 
     def render(self, request: OperatorRequest, destination: Path) -> str:
-        command = [
-            "copier",
-            "copy",
-            "--defaults",
-            "--quiet",
-            str(self.template_root),
-            str(destination),
-            "--data",
-            f"operator_name={request.name}",
-            "--data",
-            f"operator_summary={request.rationale[:120]}",
-            "--data",
-            f"operator_family={request.family}",
-            "--data",
-            f"entrypoint={FAMILY_RUNNERS[request.family]}",
-            "--data",
-            f"runner_operation={_requested_operation(request)}",
-        ]
-        result = subprocess.run(command, capture_output=True, text=True)
-        if result.returncode != 0:
-            raise AdmissionError(f"copier failed: {result.stderr.strip()}")
+        import copier
+
+        data = {
+            "operator_name": request.name,
+            "operator_summary": request.rationale[:120],
+            "operator_family": str(request.family),
+            "entrypoint": FAMILY_RUNNERS[request.family],
+            "runner_operation": _requested_operation(request),
+        }
+        try:
+            copier.run_copy(
+                str(self.template_root),
+                str(destination),
+                data=data,
+                defaults=True,
+                quiet=True,
+                unsafe=False,
+            )
+        except Exception as exc:  # noqa: BLE001 - a template failure is a finding
+            raise AdmissionError(f"copier failed: {type(exc).__name__}: {exc}") from exc
         return digest_tree(destination)
 
 
