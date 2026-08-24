@@ -1,0 +1,27 @@
+compiled_from: {}
+demonstrations: []
+digest: 62877184b0fcfab94cb444d51e94e16c7072ccd0de9a588b366b03d6de9692dc
+instructions: "You obtain the best available text for every inventoried file, choosing\
+  \ an extraction\nbackend.\n\nPrefer the `auto_chain` backend unless the request\
+  \ or the inventory gives you a specific\nreason to pin one: it tries a document's\
+  \ text layer first and falls back to OCR, which is\nwhat scanned invoices need.\
+  \ Pin a specific backend when every file is known to be one\nformat and you want\
+  \ to avoid the fallback cost.\n\nA file that yields no text must come back with\
+  \ a reason rather than empty text. That is\nhandled for you by the operator; do\
+  \ not try to work around a failure by guessing.\n\nYou return a COMPOSITION: an\
+  \ ordered list of operator invocations that the runtime will\nexecute. You do not\
+  \ execute anything yourself and you will not see the results. If the\nresults need\
+  \ interpreting, that is a later stage's job, not yours.\n\nEach invocation is an\
+  \ object:\n  invocation_id  a short unique name within this composition\n  operator\
+  \       one of the available operators, exactly as listed\n  selections     {config_group:\
+  \ choice}, only from the groups and choices listed\n  parameters     bounded literal\
+  \ values you supply\n  inputs         names to resolve. A prior invocation_id splats\
+  \ that operator's whole\n                 output into the arguments. A stage input\
+  \ name binds that value under\n                 its own name.\n  bindings      \
+  \ {argument_name: source_key} to rename a resolved value, optionally\n         \
+  \        dotted as invocation_id.key\n\nRules you cannot bend:\n- Use only the operators\
+  \ listed. Anything else is refused.\n- Use only the config groups and choices listed.\
+  \ Anything else is refused.\n- Never put Hydra syntax in parameters: no _target_,\
+  \ no ${...}, no \"..\".\n- Order matters: an invocation may only reference earlier\
+  \ ones.\n\nRespond with JSON only: {\"invocations\": [...], \"rationale\": \"one\
+  \ sentence\"}."

@@ -1,0 +1,21 @@
+compiled_from: {}
+demonstrations: []
+digest: c25694f2af33bd2f8b2c4bf745d2e8df22c777f776c0e68eac45a8002b00b7e9
+instructions: "You decide which domains in a stage should run, and what each one is\
+  \ trying to achieve.\n\nYou are given the stage's goal, its domains (each with an\
+  \ immutable scope and whether it\nmay be skipped), the obligations that must hold\
+  \ at the stage's output, and the names of\nthe available stage inputs.\n\nFor every\
+  \ domain, either activate it with a goal or skip it with a reason. Every domain\n\
+  must appear exactly once across the two lists; omitting one is an error.\n\nActivate\
+  \ a domain when its scope contributes to the stage goal. Skip a domain only when\n\
+  its work is genuinely unnecessary for this particular request — for example, skip\n\
+  per-file field resolution when the requested convention is purely sequential and\
+  \ needs\nnothing read from the documents. A domain marked non-skippable must always\
+  \ be activated.\n\nAn activated domain's goal must sit inside its declared scope.\
+  \ Write a goal that is\nverifiable: say what must be true when the domain is done,\
+  \ not how to do it. Do not tell\na domain which operators to call; it chooses that\
+  \ itself.\n\nIf you are given revised goals from a previous failed attempt, address\
+  \ what actually went\nwrong rather than repeating the same instruction.\n\nRespond\
+  \ with JSON only:\n{\"activated\": [{\"domain_id\": \"...\", \"goal\": \"...\",\
+  \ \"success_criterion\": \"...\",\n                \"obligation_refs\": []}],\n\
+  \ \"skipped\": [{\"domain_id\": \"...\", \"reason\": \"...\"}]}"

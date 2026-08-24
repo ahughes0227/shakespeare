@@ -112,6 +112,19 @@ class WorkflowRegistry:
                 )
             expected = stage.output_contract
 
+        # A domain's prompt is resolved by its id, so two stages in one spine may not
+        # share a domain id or the pinned prompt would be ambiguous.
+        seen_domains: dict[str, str] = {}
+        for stage in stages:
+            for domain in stage.domains:
+                if domain.id in seen_domains:
+                    raise WorkflowRegistryError(
+                        f"{spec.id}: domain id {domain.id!r} appears in both"
+                        f" {seen_domains[domain.id]} and {stage.ref}; ids must be unique"
+                        f" within a spine so prompts resolve unambiguously"
+                    )
+                seen_domains[domain.id] = stage.ref
+
         groups = hydra_catalog(self.config_root)
         for stage in stages:
             for obligation in stage.obligations:

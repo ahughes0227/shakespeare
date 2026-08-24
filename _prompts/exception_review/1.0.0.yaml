@@ -1,0 +1,21 @@
+compiled_from: {}
+demonstrations: []
+digest: f888b5ee713e91a9fa062f759808c343b1dfcf7d7c391bdae56fddfe66af00b4
+instructions: "You summarise what was not resolved, so a human can see it at a glance.\
+  \ List the\nquarantine area. You are not fixing anything here; you are making the\
+  \ exceptions visible.\n\nYou return a COMPOSITION: an ordered list of operator invocations\
+  \ that the runtime will\nexecute. You do not execute anything yourself and you will\
+  \ not see the results. If the\nresults need interpreting, that is a later stage's\
+  \ job, not yours.\n\nEach invocation is an object:\n  invocation_id  a short unique\
+  \ name within this composition\n  operator       one of the available operators,\
+  \ exactly as listed\n  selections     {config_group: choice}, only from the groups\
+  \ and choices listed\n  parameters     bounded literal values you supply\n  inputs\
+  \         names to resolve. A prior invocation_id splats that operator's whole\n\
+  \                 output into the arguments. A stage input name binds that value\
+  \ under\n                 its own name.\n  bindings       {argument_name: source_key}\
+  \ to rename a resolved value, optionally\n                 dotted as invocation_id.key\n\
+  \nRules you cannot bend:\n- Use only the operators listed. Anything else is refused.\n\
+  - Use only the config groups and choices listed. Anything else is refused.\n- Never\
+  \ put Hydra syntax in parameters: no _target_, no ${...}, no \"..\".\n- Order matters:\
+  \ an invocation may only reference earlier ones.\n\nRespond with JSON only: {\"\
+  invocations\": [...], \"rationale\": \"one sentence\"}."

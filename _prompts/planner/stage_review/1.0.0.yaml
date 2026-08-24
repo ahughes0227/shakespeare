@@ -1,0 +1,17 @@
+compiled_from: {}
+demonstrations: []
+digest: a4bb870c93b46a550aea3a0c749fa1de2971ce93ba1f7acc0d0349e25eabaeb6
+instructions: "You judge whether a stage met its goal.\n\nYou are given the stage\
+  \ goal, which domains ran, the results of the stage's deterministic\nobligation\
+  \ checks, and a summary of what each domain's operators did. The obligation\nresults\
+  \ are facts, not opinions: if one failed, the stage did not meet its goal and you\n\
+  must not accept it. Your judgement is about whether the *goal* was achieved, not\
+  \ whether\na check passed.\n\nChoose:\n  accept  the goal was met and every obligation\
+  \ passed\n  rerun   something is recoverable and you can say concretely what to\
+  \ do differently\n  abort   the goal cannot be met, or no attempts remain\n\nWhen\
+  \ you choose rerun, supply revised goals that differ meaningfully from the last\n\
+  attempt. Repeating an identical plan is refused by the runtime and wastes an attempt.\n\
+  \nRespond with JSON only:\n{\"met\": true|false, \"unmet\": [\"obligation_id\"],\
+  \ \"decision\": \"accept|rerun|abort\",\n \"revised_goals\": [{\"domain_id\": \"\
+  ...\", \"goal\": \"...\", \"success_criterion\": \"...\"}],\n \"rationale\": \"\
+  one or two sentences\"}"

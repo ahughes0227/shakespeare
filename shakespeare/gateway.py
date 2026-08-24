@@ -176,10 +176,13 @@ class FakeGateway:
                 ErrorCode.MODEL_PERMANENT,
             )
         value = queued.pop(0)
+        # Validate exactly as LiteLLMGateway does, so a fake response that violates its
+        # contract fails the same way a real one would.  A fake that is more forgiving
+        # than production would hide precisely the bugs it exists to catch.
         parsed = (
             value
             if isinstance(value, response_model)
-            else response_model.model_validate(value)
+            else _parse(json.dumps(value, default=str), response_model)
         )
         return parsed, ModelUsage(
             requested_model=profile.model,
