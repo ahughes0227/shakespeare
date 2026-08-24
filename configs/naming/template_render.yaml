@@ -1,0 +1,6 @@
+renderer: template_render
+separator: ", "
+case: preserve
+max_length: 200
+replacement: "-"
+collapse_whitespace: true

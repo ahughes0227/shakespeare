@@ -1,0 +1,11 @@
+# The closed catalog.  A domain subagent selects `group=choice` from these groups and
+# nothing else; anything outside the catalog is rejected before an operator runs.
+defaults:
+  - extract: auto_chain
+  - naming: template_render
+  - collision: suffix_n
+  - confidence: balanced
+  - write: stage_mirror
+  - _self_
+
+seed: 1729
