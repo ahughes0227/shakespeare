@@ -14,6 +14,7 @@ from sqlalchemy.engine import Connection
 from ..contracts import (
     AdmissionDecision,
     AdmissionReport,
+    ChangeAction,
     ChangePlan,
     Composition,
     ObligationResult,
@@ -406,6 +407,36 @@ class AuditStore:
             )
         return mutation_id
 
+    def record_plan(self, *, run_id: str, plan: ChangePlan) -> str:
+        """Record the plan a run produced, whether or not it was committed.
+
+        Replay needs something to compare against; without this the log could say a run
+        committed three files but not what it decided they should be called.
+        """
+        plan_id = _id()
+        with self.engine.begin() as connection:
+            self._insert(
+                connection,
+                schema.plans,
+                plan_id=plan_id,
+                run_id=run_id,
+                digest=plan.digest(),
+                entry_count=len(plan.entries),
+                changed=plan.count(ChangeAction.CHANGED),
+                unchanged=plan.count(ChangeAction.UNCHANGED),
+                unresolved=plan.count(ChangeAction.UNRESOLVED),
+                payload=canonical_json(plan),
+                recorded_at=_now(),
+            )
+        return plan_id
+
+    def recorded_plan(self, run_id: str) -> ChangePlan | None:
+        with self.engine.begin() as connection:
+            row = connection.execute(
+                select(schema.plans).where(schema.plans.c.run_id == run_id)
+            ).mappings().first()
+        return ChangePlan.model_validate(json.loads(row["payload"])) if row else None
+
     def record_commit(self, *, run_id: str, plan: ChangePlan, staging_digest: str,
                       output_root: str) -> str:
         commit_id = _id()
@@ -489,6 +520,62 @@ class AuditStore:
                     }
                 )
             return {"run_id": run_id, "stage": stage_name, "attempts": output}
+
+    def replay_source(self, run_id: str) -> dict[str, Any]:
+        """Everything needed to re-execute a run with no model calls.
+
+        Failed attempts are included: replay reproduces the sequence that actually
+        happened, not an idealised one, or it would not be a replay.
+        """
+        with self.engine.begin() as connection:
+            run = connection.execute(
+                select(schema.runs).where(schema.runs.c.run_id == run_id)
+            ).mappings().first()
+            if run is None:
+                raise KeyError(f"unknown run: {run_id}")
+
+            attempts = connection.execute(
+                select(schema.stage_attempts)
+                .where(schema.stage_attempts.c.run_id == run_id)
+                .order_by(schema.stage_attempts.c.started_at, schema.stage_attempts.c.attempt_no)
+            ).mappings().all()
+
+            recorded: list[dict[str, Any]] = []
+            for attempt in attempts:
+                plan = connection.execute(
+                    select(schema.stage_plans).where(
+                        schema.stage_plans.c.attempt_id == attempt["attempt_id"]
+                    )
+                ).mappings().first()
+                verdict = connection.execute(
+                    select(schema.stage_verdicts).where(
+                        schema.stage_verdicts.c.attempt_id == attempt["attempt_id"]
+                    )
+                ).mappings().first()
+                compositions = connection.execute(
+                    select(schema.compositions).where(
+                        schema.compositions.c.attempt_id == attempt["attempt_id"]
+                    )
+                ).mappings().all()
+                recorded.append(
+                    {
+                        "stage_name": attempt["stage_name"],
+                        "stage_version": attempt["stage_version"],
+                        "attempt_no": attempt["attempt_no"],
+                        "plan": json.loads(plan["payload"]) if plan else None,
+                        "verdict": dict(verdict) if verdict else None,
+                        "compositions": {
+                            row["domain_id"]: json.loads(row["payload"]) for row in compositions
+                        },
+                    }
+                )
+
+        return {
+            "run_id": run_id,
+            "workflow_id": run["workflow_id"],
+            "workflow_digest": run["workflow_digest"],
+            "attempts": recorded,
+        }
 
     def costs(self, run_id: str) -> dict[str, Any]:
         with self.engine.begin() as connection:

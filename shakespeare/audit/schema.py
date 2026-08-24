@@ -246,6 +246,19 @@ mutations = _table(
     Column("recorded_at", String, nullable=False),
 )
 
+plans = _table(
+    "plans",
+    Column("plan_id", String, primary_key=True),
+    Column("run_id", String, ForeignKey("runs.run_id"), nullable=False),
+    Column("digest", String, nullable=False),
+    Column("entry_count", Integer, nullable=False),
+    Column("changed", Integer, nullable=False),
+    Column("unchanged", Integer, nullable=False),
+    Column("unresolved", Integer, nullable=False),
+    Column("payload", Text, nullable=False),
+    Column("recorded_at", String, nullable=False),
+)
+
 commits = _table(
     "commits",
     Column("commit_id", String, primary_key=True),

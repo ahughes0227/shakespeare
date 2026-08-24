@@ -187,6 +187,8 @@ class Runtime:
             )
 
         plan = self._plan_from_context(context)
+        if plan is not None:
+            self.audit.record_plan(run_id=run_id, plan=plan)
         if not commit:
             self.audit.record_run_outcome(run_id=run_id, outcome="planned")
             return RunResult(

@@ -207,10 +207,13 @@ class WorkflowGraph:
         return {"approved": bool(decision)}
 
     def _commit_node(self, state: GraphState) -> dict[str, Any]:
+        plan = self.runtime._plan_from_context(state.get("context", {}))
+        if plan is not None:
+            self.runtime.audit.record_plan(run_id=state["run_id"], plan=plan)
         result = self.runtime._commit(
             run_id=state["run_id"],
             workflow=self.workflow,
-            plan=self.runtime._plan_from_context(state.get("context", {})),
+            plan=plan,
             staging=self.staging,
             output_root=Path(self.request.output_root),
             outcomes=tuple(self.outcomes),

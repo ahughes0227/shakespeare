@@ -166,6 +166,185 @@ def plan_only(
 
 
 @app.command()
+def apply(
+    plan_path: Annotated[Path, typer.Option("--plan", exists=True, dir_okay=False)],
+    input_root: Annotated[Path, typer.Option("--input", "-i", exists=True, file_okay=False)],
+    output_root: Annotated[Path, typer.Option("--output", "-o")],
+    yes: Annotated[bool, typer.Option("--yes", "-y")] = False,
+    state_root: Annotated[Path | None, typer.Option("--state", hidden=True)] = None,
+) -> None:
+    """Phase two: commit a plan produced earlier by `plan`.
+
+    The plan's recorded source digests are re-verified against the input tree first, so a
+    file that changed since planning stops the commit rather than being renamed on stale
+    information.
+    """
+    services = _services(state_root, planner=_no_model(), agents={})
+    plan = ChangePlan.model_validate_json(plan_path.read_text())
+
+    drifted = _verify_sources(plan, input_root)
+    if drifted:
+        _fail(
+            f"{len(drifted)} source file(s) changed since this plan was made: "
+            f"{', '.join(drifted[:5])}{'...' if len(drifted) > 5 else ''}\n"
+            f"Re-run `shakespeare plan` against the current tree."
+        )
+
+    _render_plan(plan)
+    if not yes and not typer.confirm("Commit this plan?", default=False):
+        console.print("[dim]Nothing was written.[/dim]")
+        raise typer.Exit(code=0)
+
+    staging = services.state_root / "runs" / plan.run_id / "staging"
+    mutation.discard(staging)
+    try:
+        reversals = mutation.stage_plan(
+            plan=plan, input_root=input_root.resolve(), staging_root=staging
+        )
+        report = mutation.verify_tree(plan=plan, staging_root=staging)
+        if not report["ok"]:
+            mutation.discard(staging)
+            _fail(f"staging does not match the plan: {report}")
+        for record in reversals:
+            services.audit.record_mutation(
+                run_id=plan.run_id,
+                target_ref=str(record.payload.get("target", "")),
+                operation=record.operation,
+                reversal=record,
+            )
+        record = mutation.commit(
+            staging_root=staging, output_root=output_root.expanduser().resolve()
+        )
+    except mutation.MutationError as exc:
+        mutation.discard(staging)
+        _fail(str(exc))
+        return
+
+    services.audit.record_mutation(
+        run_id=plan.run_id,
+        target_ref=str(output_root),
+        operation="commit",
+        reversal=record,
+    )
+    console.print(
+        Panel(f"Committed to [bold]{output_root}[/bold]\nrun {plan.run_id}", border_style="green")
+    )
+
+
+def _verify_sources(plan: ChangePlan, input_root: Path) -> list[str]:
+    """Source paths whose contents no longer match the digests recorded in the plan."""
+    from .operators.filesystem import digest_file
+
+    drifted: list[str] = []
+    for entry in plan.entries:
+        recorded = entry.digests.get("source") or getattr(entry, "source_sha256", None)
+        if not recorded:
+            continue
+        path = input_root / entry.source_ref
+        if not path.is_file() or digest_file(path) != recorded:
+            drifted.append(entry.source_ref)
+    return drifted
+
+
+@app.command()
+def replay(
+    run_id: Annotated[str, typer.Argument(help="Run to replay.")],
+    input_root: Annotated[Path, typer.Option("--input", "-i", exists=True, file_okay=False)],
+    output_root: Annotated[
+        Path | None, typer.Option("--output", "-o", help="Commit the replay here too.")
+    ] = None,
+    state_root: Annotated[Path | None, typer.Option("--state", hidden=True)] = None,
+) -> None:
+    """Re-execute a recorded run with zero model calls, and check it reproduces.
+
+    Only the planner and the domain agents are swapped for journal-backed ones; the same
+    verifier, executor and obligations run. A replay that reproduces the original plan is
+    therefore evidence that the recorded compositions really do determine the result.
+    """
+    from .replay import ReplayError, assert_same_workflow, journal_components
+
+    inspect = _services(state_root, planner=_no_model(), agents={})
+    original = inspect.audit.recorded_plan(run_id)
+    if original is None:
+        _fail(f"run {run_id} recorded no plan to reproduce")
+        return
+
+    stage_of = {
+        domain.id: stage.name
+        for ref in inspect.stages.refs()
+        for stage in [inspect.stages.get(ref)]
+        for domain in stage.domains
+    }
+    try:
+        planner, agents, workflow_id, recorded_digest = journal_components(
+            inspect.audit, run_id, stage_of=stage_of
+        )
+        assert_same_workflow(recorded_digest, inspect.workflows.get(workflow_id).digest())
+    except (ReplayError, KeyError) as exc:
+        _fail(str(exc))
+        return
+
+    services = _services(state_root, planner=planner, agents=agents)
+    request = RequestContract(
+        request_id=f"replay-{run_id}",
+        prompt=f"replay of {run_id}",
+        input_root=str(input_root.resolve()),
+        output_root=str((output_root or Path("/dev/null/unused")).expanduser()),
+    )
+    try:
+        result = services.runtime.run(request, commit=output_root is not None)
+    except ReplayError as exc:
+        _fail(str(exc))
+        return
+
+    if result.plan is None:
+        _report(result)
+        raise typer.Exit(code=1)
+
+    assert planner.model_calls == 0, "replay must make no model call"
+    _compare(original, result.plan)
+    if output_root is not None:
+        _report(result)
+
+
+def _compare(original: ChangePlan, replayed: ChangePlan) -> None:
+    """Compare decisions, ignoring the identifiers that must differ between runs."""
+
+    def decisions(plan: ChangePlan) -> list[tuple[str, str, str | None]]:
+        return sorted(
+            (entry.source_ref, str(entry.action), getattr(entry, "target_relpath", None))
+            for entry in plan.entries
+        )
+
+    before, after = decisions(original), decisions(replayed)
+    if before == after:
+        console.print(
+            Panel(
+                f"Reproduced exactly · {len(after)} entries · zero model calls",
+                border_style="green",
+            )
+        )
+        return
+
+    table = Table(title="Replay diverged from the recorded run")
+    table.add_column("source")
+    table.add_column("recorded")
+    table.add_column("replayed")
+    recorded = {item[0]: item for item in before}
+    produced = {item[0]: item for item in after}
+    for source in sorted(set(recorded) | set(produced)):
+        first, second = recorded.get(source), produced.get(source)
+        if first != second:
+            table.add_row(
+                source,
+                f"{first[1]} → {first[2]}" if first else "—",
+                f"{second[1]} → {second[2]}" if second else "—",
+            )
+    err.print(table)
+    raise typer.Exit(code=1)
+
+
+@app.command()
 def undo(
     run_id: Annotated[str, typer.Argument(help="Run to reverse.")],
     state_root: Annotated[Path | None, typer.Option("--state", hidden=True)] = None,
