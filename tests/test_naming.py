@@ -228,3 +228,73 @@ class TestSanitize:
 
     def test_collapses_internal_whitespace(self) -> None:
         assert sanitize("a   \t b", NamePolicy()) == "a b"
+
+
+class TestConfidenceFloor:
+    """A value present but uncertain must quarantine, exactly like a missing one.
+
+    This is the system's central safety claim — 'never guessed at' — and until now the
+    declared confidence_floor was dead code that nothing read.
+    """
+
+    def _fields(self, floor: float = 0.7):
+        return (
+            FieldDecl(name="vendor", confidence_floor=floor),
+            FieldDecl(name="invoice_number", confidence_floor=floor),
+            FieldDecl(name="po_number", required=False, confidence_floor=floor),
+        )
+
+    def _render(self, confidences: dict[str, float] | None, **kwargs):
+        return render(
+            item_id="1",
+            template="{vendor}, {invoice_number}, {po_number}",
+            fields=self._fields(),
+            values={"vendor": "ACME", "invoice_number": "INV-1", "po_number": "PO-1"},
+            policy=NamePolicy(),
+            extension=".pdf",
+            confidences=confidences,
+            **kwargs,
+        )
+
+    def test_a_confident_value_renders(self) -> None:
+        assert self._render({"vendor": 0.95}).rendered == "ACME, INV-1, PO-1.pdf"
+
+    def test_a_low_confidence_required_field_quarantines(self) -> None:
+        result = self._render({"vendor": 0.4})
+        assert result.rendered is None
+        assert result.reason is not None
+        assert result.reason.startswith("low_confidence:vendor")
+
+    def test_the_reason_records_the_number_and_the_threshold(self) -> None:
+        """A human triaging the quarantine needs to see how close it was."""
+        assert self._render({"vendor": 0.55}).reason == "low_confidence:vendor:0.55<0.70"
+
+    def test_a_low_confidence_optional_field_is_simply_omitted(self) -> None:
+        assert self._render({"po_number": 0.1}).rendered == "ACME, INV-1.pdf"
+
+    def test_absent_confidence_is_not_treated_as_zero(self) -> None:
+        """An agent that reports no confidence must not have every file quarantined."""
+        assert self._render(None).rendered == "ACME, INV-1, PO-1.pdf"
+        assert self._render({}).rendered == "ACME, INV-1, PO-1.pdf"
+
+    def test_exactly_at_the_floor_is_accepted(self) -> None:
+        assert self._render({"vendor": 0.7}).rendered is not None
+
+    def test_a_run_floor_can_tighten_but_not_loosen_a_field_floor(self) -> None:
+        """The stricter of the two wins, so config can never weaken a spec."""
+        assert self._render({"vendor": 0.8}, floor=0.9).rendered is None
+        assert self._render({"vendor": 0.8}, floor=0.1).rendered is not None
+
+    def test_a_sequence_field_is_never_confidence_checked(self) -> None:
+        result = render(
+            item_id="1",
+            template="{seq:03d}",
+            fields=(FieldDecl(name="seq", kind=FieldKind.SEQUENCE, format="03d"),),
+            values={},
+            policy=NamePolicy(),
+            extension=".pdf",
+            sequence=7,
+            confidences={"seq": 0.0},
+            floor=0.99,
+        )
+        assert result.rendered == "007.pdf"

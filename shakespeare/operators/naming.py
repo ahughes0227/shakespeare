@@ -156,8 +156,16 @@ def render(
     policy: NamePolicy,
     extension: str = "",
     sequence: int | None = None,
+    confidences: dict[str, float] | None = None,
+    floor: float | None = None,
 ) -> RenderResult:
-    """Render one filename.  Total: it never raises for missing data, it explains."""
+    """Render one filename.  Total: it never raises for missing data, it explains.
+
+    A value supplied below its confidence floor is treated exactly like a missing one.
+    That is the point: a half-read vendor name must quarantine the file, not produce a
+    confidently wrong filename that nobody notices.
+    """
+    confidences = confidences or {}
     declared = {decl.name: decl for decl in fields}
     placeholders = _PLACEHOLDER.findall(template)
     if not placeholders:
@@ -185,6 +193,22 @@ def render(
                 return RenderResult(item_id=item_id, rendered=None, reason=f"missing_field:{name}")
             resolved[name] = ""
             continue
+
+        if decl.kind is not FieldKind.SEQUENCE:
+            # The stricter of the field's own floor and the run's configured floor.
+            threshold = decl.confidence_floor
+            if floor is not None:
+                threshold = max(floor, threshold)
+            confidence = confidences.get(name)
+            if confidence is not None and confidence < threshold:
+                if decl.required:
+                    return RenderResult(
+                        item_id=item_id,
+                        rendered=None,
+                        reason=f"low_confidence:{name}:{confidence:.2f}<{threshold:.2f}",
+                    )
+                resolved[name] = ""
+                continue
         try:
             formatted = _format_value(raw, decl)
         except (ValueError, TypeError) as exc:

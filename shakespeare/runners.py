@@ -12,7 +12,7 @@ the allowlists below and pass the family test tiers.
 from __future__ import annotations
 
 from collections.abc import Callable
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 from .contracts import ChangeAction, ChangePlan, OperatorFamily, ReversalRecord
@@ -104,6 +104,35 @@ def _extract(arguments: dict[str, Any], workspace: Path) -> dict[str, Any]:
 # --------------------------------------------------------------------------------------
 
 
+def _render_items(arguments: dict[str, Any]) -> list[dict[str, Any]]:
+    """Items to render: supplied explicitly, or derived from the inventory.
+
+    Deriving them is what makes a purely sequential rename cost one invocation and no
+    parameters — the agent never has to transcribe the inventory to name files by order.
+    """
+    supplied = arguments.get("items") or arguments.get("scanned") or arguments.get("inventory")
+    resolved: list[dict[str, Any]] = []
+    for item in supplied or ():
+        # Shape-driven rather than key-driven: an inventory entry carries `relpath`, a
+        # render item carries `directory`/`extension`. Both reach this operator under the
+        # name `items`, so distinguishing them by key alone would be ambiguous.
+        if "relpath" in item and "extension" not in item:
+            relpath = PurePosixPath(item["relpath"])
+            parent = str(relpath.parent)
+            resolved.append(
+                {
+                    "item_id": item["item_id"],
+                    "directory": "" if parent == "." else parent,
+                    "extension": relpath.suffix,
+                    "values": item.get("values", {}),
+                    "confidences": item.get("confidences", {}),
+                }
+            )
+        else:
+            resolved.append(dict(item))
+    return resolved
+
+
 def _render_template(arguments: dict[str, Any], workspace: Path) -> dict[str, Any]:
     # A frozen spec carries the template, fields and policy together, so accepting one
     # directly is what lets a composition bind spec.freeze straight into the renderer.
@@ -118,6 +147,10 @@ def _render_template(arguments: dict[str, Any], workspace: Path) -> dict[str, An
         fields = tuple(naming.FieldDecl.model_validate(item) for item in arguments["fields"])
         policy = _naming_policy(arguments)
 
+    items = _render_items(arguments)
+    floor = _cfg(arguments, "confidence", "floor", None)
+    if spec_payload is not None and floor is None:
+        floor = naming.NamingSpec.model_validate(spec_payload).confidence_floor
     results = [
         naming.render(
             item_id=item["item_id"],
@@ -127,10 +160,12 @@ def _render_template(arguments: dict[str, Any], workspace: Path) -> dict[str, An
             policy=policy,
             extension=item.get("extension", ""),
             sequence=item.get("sequence", index + 1),
+            confidences=item.get("confidences"),
+            floor=float(floor) if floor is not None else None,
         )
-        for index, item in enumerate(arguments["items"])
+        for index, item in enumerate(items)
     ]
-    directories = {item["item_id"]: item.get("directory", "") for item in arguments["items"]}
+    directories = {item["item_id"]: item.get("directory", "") for item in items}
     return {
         "results": [item.model_dump(mode="json") for item in results],
         # Shaped for name.collide, so a composition can bind one straight into the other.

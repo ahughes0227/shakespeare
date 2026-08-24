@@ -198,6 +198,24 @@ def check_every_item_has_text_or_reason(
     return _result(obligation_id, not offenders, without_text_or_reason=offenders[:20])
 
 
+def check_resolution_accounted(obligation_id: str, payload: dict[str, Any]) -> ObligationResult:
+    """Every inventoried item must come out of resolution either named or quarantined.
+
+    Without this an item could silently vanish between the renderer and the plan, and the
+    balance check downstream would never see it because it was never offered.
+    """
+    inventory = len(payload.get("items", []))
+    named = len(payload.get("candidates", []))
+    quarantined = len(payload.get("unrendered", []))
+    return _result(
+        obligation_id,
+        named + quarantined == inventory,
+        items=inventory,
+        named=named,
+        quarantined=quarantined,
+    )
+
+
 def check_spec_frozen(obligation_id: str, payload: dict[str, Any]) -> ObligationResult:
     """The frozen convention must match the digest recorded when it was frozen."""
     spec = payload.get("spec")
@@ -242,6 +260,7 @@ CHECKS = {
     "no_collisions": check_no_collisions,
     "resolved_or_quarantined": check_resolved_or_quarantined,
     "every_item_has_text_or_reason": check_every_item_has_text_or_reason,
+    "resolution_accounted": check_resolution_accounted,
     "spec_frozen": check_spec_frozen,
     "rendered_mechanically": check_rendered_mechanically,
     "structure_mirrors": check_structure_mirrors,
@@ -255,6 +274,7 @@ CHECK_REQUIREMENTS: dict[str, tuple[str, ...]] = {
     "no_collisions": ("entries",),
     "resolved_or_quarantined": ("entries",),
     "every_item_has_text_or_reason": ("extractions",),
+    "resolution_accounted": ("items", "candidates", "unrendered"),
     "spec_frozen": ("spec", "digest"),
     "rendered_mechanically": ("comparisons",),
     "structure_mirrors": ("expected_dirs", "actual_dirs"),

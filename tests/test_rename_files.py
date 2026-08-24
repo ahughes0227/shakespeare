@@ -329,17 +329,73 @@ class TestCollisions:
         audit.close()
 
 
+SEQUENTIAL_SPEC = {
+    "template": "{seq:04d}",
+    "fields": [{"name": "seq", "kind": "sequence", "format": "04d"}],
+    "policy": {},
+    "collision_policy": "suffix_n",
+}
+
+
 class TestSequentialRename:
-    def test_skipping_field_resolution_makes_no_per_item_model_call(
-        self, tmp_path: Path
-    ) -> None:
-        """A purely sequential convention must cost nothing per file."""
+    """A convention that needs nothing read from the documents.
+
+    The earlier version of this test only asserted "no model calls", which is trivially
+    true when a run aborts — and it was aborting. It now asserts the run actually
+    produces sequentially named files.
+    """
+
+    def _agents(self) -> dict[str, FakeDomainAgent]:
         agents = build_agents([])
-        runtime, request, audit, _ = build(
-            tmp_path, planner=build_planner(skip_resolution=True), agents=agents
+        agents["convention_design"] = FakeDomainAgent().queue(
+            "convention_design",
+            Composition(
+                domain_id="convention_design",
+                invocations=(
+                    Invocation(
+                        invocation_id="freeze",
+                        operator="spec.freeze",
+                        parameters={"spec": SEQUENTIAL_SPEC},
+                    ),
+                ),
+            ),
         )
+        agents["field_resolution"] = FakeDomainAgent().queue(
+            "field_resolution",
+            Composition(
+                domain_id="field_resolution",
+                invocations=(
+                    # No parameters at all: the renderer derives every item from the
+                    # inventory and fills {seq} from the deterministic scan order.
+                    Invocation(
+                        invocation_id="render",
+                        operator="name.render",
+                        inputs=("spec", "items"),
+                    ),
+                ),
+            ),
+        )
+        return agents
+
+    def test_produces_sequential_names(self, tmp_path: Path) -> None:
+        agents = self._agents()
+        runtime, request, audit, _ = build(tmp_path, agents=agents)
+        result = runtime.run(request)
+        assert result.outcome == "committed", result.detail
+
+        output = Path(request.output_root)
+        produced = sorted(
+            path.relative_to(output).as_posix() for path in output.rglob("*") if path.is_file()
+        )
+        assert produced == ["2024/q1/0001.pdf", "2024/q1/0002.pdf", "2024/q2/0003.pdf"]
+        audit.close()
+
+    def test_needs_no_per_item_transcription(self, tmp_path: Path) -> None:
+        """The agent emits one invocation regardless of how many files there are."""
+        agents = self._agents()
+        runtime, request, audit, _ = build(tmp_path, agents=agents)
         runtime.run(request)
-        assert agents["field_resolution"].call_count == 0
+        assert agents["field_resolution"].call_count == 1
         audit.close()
 
 

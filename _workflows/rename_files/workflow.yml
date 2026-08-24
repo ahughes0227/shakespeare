@@ -1,5 +1,5 @@
 id: rename_files
-version: "1.0.0"
+version: "1.1.0"
 # Each boundary exists because the previous stage's output must be interpreted or
 # verified by a model.  convention and resolve are separate stages for exactly that
 # reason: the frozen spec is a model output that a different model pass then applies.
@@ -7,7 +7,7 @@ spine:
   - intake@1.0.0
   - extract@1.0.0
   - convention@1.0.0
-  - resolve@1.0.0
+  - resolve@1.1.0
   - compose_changes@1.0.0
   - review@1.0.0
 commit_after: review
