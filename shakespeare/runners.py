@@ -25,6 +25,18 @@ class RunnerError(RuntimeError):
     pass
 
 
+def _cfg(arguments: dict[str, Any], group: str, key: str, default: Any = None) -> Any:
+    """Read a value from the composed Hydra config, allowing a direct override.
+
+    The executor passes the whole composed mapping under `config`; a caller may still
+    pass a flat key, which is what keeps operators unit-testable without a composition.
+    """
+    if key in arguments:
+        return arguments[key]
+    group_config = (arguments.get("config") or {}).get(group) or {}
+    return group_config.get(key, default)
+
+
 def _dispatch(
     arguments: dict[str, Any], workspace: Path, allowed: dict[str, Operation]
 ) -> dict[str, Any]:
@@ -67,15 +79,15 @@ def _directories(arguments: dict[str, Any], workspace: Path) -> dict[str, Any]:
 
 def _extract(arguments: dict[str, Any], workspace: Path) -> dict[str, Any]:
     options = extraction.ExtractOptions(
-        page_limit=int(arguments.get("page_limit", 20)),
-        char_limit=int(arguments.get("char_limit", 200_000)),
+        page_limit=int(_cfg(arguments, "extract", "page_limit", 20)),
+        char_limit=int(_cfg(arguments, "extract", "char_limit", 200_000)),
     )
     results = [
         extraction.extract(
             item_id=item["item_id"],
             path=Path(arguments["root"]) / item["relpath"],
             media_type=item.get("media_type", "application/octet-stream"),
-            backend=extraction.Backend(arguments.get("backend", "auto_chain")),
+            backend=extraction.Backend(_cfg(arguments, "extract", "backend", "auto_chain")),
             options=options,
         )
         for item in arguments["items"]
@@ -94,7 +106,17 @@ def _extract(arguments: dict[str, Any], workspace: Path) -> dict[str, Any]:
 
 def _render_template(arguments: dict[str, Any], workspace: Path) -> dict[str, Any]:
     fields = tuple(naming.FieldDecl.model_validate(item) for item in arguments["fields"])
-    policy = naming.NamePolicy.model_validate(arguments.get("policy", {}))
+    naming_config = (arguments.get("config") or {}).get("naming") or {}
+    policy = naming.NamePolicy.model_validate(
+        arguments.get(
+            "policy",
+            {
+                key: value
+                for key, value in naming_config.items()
+                if key in naming.NamePolicy.model_fields
+            },
+        )
+    )
     results = [
         naming.render(
             item_id=item["item_id"],
@@ -125,7 +147,7 @@ def _normalize(arguments: dict[str, Any], workspace: Path) -> dict[str, Any]:
 def _collision_resolve(arguments: dict[str, Any], workspace: Path) -> dict[str, Any]:
     candidates = tuple(naming.Candidate.model_validate(item) for item in arguments["candidates"])
     resolutions = naming.resolve_collisions(
-        candidates, naming.CollisionPolicy(arguments.get("policy", "suffix_n"))
+        candidates, naming.CollisionPolicy(_cfg(arguments, "collision", "policy", "suffix_n"))
     )
     return {"resolutions": [item.model_dump(mode="json") for item in resolutions]}
 
@@ -161,6 +183,7 @@ def _stage_write(arguments: dict[str, Any], workspace: Path) -> dict[str, Any]:
         plan=plan,
         input_root=Path(arguments["input_root"]),
         staging_root=Path(arguments["staging_root"]),
+        quarantine_dirname=_cfg(arguments, "write", "quarantine_dirname", "_unresolved"),
     )
     return {"reversals": [item.model_dump(mode="json") for item in reversals]}
 
