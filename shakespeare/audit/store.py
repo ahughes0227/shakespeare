@@ -421,6 +421,7 @@ class AuditStore:
                 plan_id=plan_id,
                 run_id=run_id,
                 digest=plan.digest(),
+                fingerprint=plan.fingerprint(),
                 entry_count=len(plan.entries),
                 changed=plan.count(ChangeAction.CHANGED),
                 unchanged=plan.count(ChangeAction.UNCHANGED),
@@ -436,6 +437,26 @@ class AuditStore:
                 select(schema.plans).where(schema.plans.c.run_id == run_id)
             ).mappings().first()
         return ChangePlan.model_validate(json.loads(row["payload"])) if row else None
+
+    def find_commit(self, *, plan_digest: str, output_root: str) -> dict[str, Any] | None:
+        """`plan_digest` is a `ChangePlan.fingerprint()`, not a `digest()`."""
+        """A commit already made for this exact plan and destination.
+
+        This is the idempotency receipt: re-applying a satisfied plan should be a no-op,
+        not an error about the output root existing.
+        """
+        with self.engine.begin() as connection:
+            row = connection.execute(
+                select(schema.commits, schema.plans)
+                .select_from(
+                    schema.commits.join(
+                        schema.plans, schema.commits.c.run_id == schema.plans.c.run_id
+                    )
+                )
+                .where(schema.plans.c.fingerprint == plan_digest)
+                .where(schema.commits.c.output_root == output_root)
+            ).mappings().first()
+        return dict(row) if row else None
 
     def record_commit(self, *, run_id: str, plan: ChangePlan, staging_digest: str,
                       output_root: str) -> str:

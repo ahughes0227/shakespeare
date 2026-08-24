@@ -406,6 +406,24 @@ class Runtime:
                 detail="the workflow produced no change plan",
             )
 
+        existing = self.audit.find_commit(
+            plan_digest=plan.fingerprint(), output_root=str(output_root)
+        )
+        if existing is not None and output_root.exists():
+            # Idempotency receipt: this exact plan has already been committed here, so
+            # re-applying it is a no-op rather than a collision with the output root.
+            mutation.discard(staging)
+            self.audit.record_run_outcome(run_id=run_id, outcome="already_committed")
+            return RunResult(
+                run_id=run_id,
+                workflow_id=workflow.spec.id,
+                outcome="committed",
+                plan=plan,
+                committed_to=str(output_root),
+                stages=outcomes,
+                detail=f"already committed by run {existing['run_id']}; nothing to do",
+            )
+
         report = mutation.verify_tree(plan=plan, staging_root=staging)
         if not report["ok"]:
             mutation.discard(staging)

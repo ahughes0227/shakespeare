@@ -190,13 +190,44 @@ class TestObligations:
         assert run_check("o", "spec_frozen", {"spec": spec, "digest": content_digest(spec)}).passed
         assert not run_check("o", "spec_frozen", {"spec": spec, "digest": "wrong"}).passed
 
-    def test_rendered_mechanically_catches_a_hand_written_name(self) -> None:
+    def test_rendered_mechanically_catches_a_name_from_nowhere(self) -> None:
+        """Defence in depth behind plan.assemble's refusal of hand-written names.
+
+        A plan entry that names a file must correspond to a render candidate.
+        """
         result = run_check(
             "o",
             "rendered_mechanically",
-            {"comparisons": [{"item_id": "1", "expected": "a.pdf", "actual": "hand-written.pdf"}]},
+            {
+                "entries": [{"item_id": "ghost", "target_relpath": "invented.pdf"}],
+                "candidates": [{"item_id": "real"}],
+            },
         )
         assert not result.passed
+        assert result.detail["unaccounted"] == ["ghost"]
+
+    def test_rendered_mechanically_tolerates_a_collision_suffix(self) -> None:
+        """Collision resolution rewrites names, so the check is on identity not strings."""
+        result = run_check(
+            "o",
+            "rendered_mechanically",
+            {
+                "entries": [{"item_id": "a", "target_relpath": "x (2).pdf"}],
+                "candidates": [{"item_id": "a", "name": "x.pdf"}],
+            },
+        )
+        assert result.passed
+
+    def test_rendered_mechanically_ignores_quarantined_items(self) -> None:
+        result = run_check(
+            "o",
+            "rendered_mechanically",
+            {
+                "entries": [{"item_id": "q", "target_relpath": None, "reason": "ocr_unavailable"}],
+                "candidates": [],
+            },
+        )
+        assert result.passed
 
     def test_unknown_check_is_refused(self) -> None:
         with pytest.raises(AssemblyError, match="unknown obligation check"):

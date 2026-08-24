@@ -507,6 +507,27 @@ class ChangePlan(Contract):
     #: `target_relpath`, producing a plan whose entries have no destination.
     entries: tuple[SerializeAsAny[ChangeEntry], ...] = ()
 
+    def fingerprint(self) -> str:
+        """Identity of the decisions, independent of which run made them.
+
+        `digest()` covers run_id, so two runs of the same request never share it. The
+        idempotency receipt needs the opposite: the same decisions to the same place must
+        be recognisable as the same plan.
+        """
+        return content_digest(
+            {
+                "workflow_id": self.workflow_id,
+                "entries": sorted(
+                    (
+                        entry.source_ref,
+                        str(entry.action),
+                        getattr(entry, "target_relpath", None),
+                    )
+                    for entry in self.entries
+                ),
+            }
+        )
+
     def balanced(self, scanned: int) -> bool:
         return len(self.entries) == scanned and len({e.item_id for e in self.entries}) == scanned
 

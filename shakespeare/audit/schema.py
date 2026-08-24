@@ -251,6 +251,9 @@ plans = _table(
     Column("plan_id", String, primary_key=True),
     Column("run_id", String, ForeignKey("runs.run_id"), nullable=False),
     Column("digest", String, nullable=False),
+    # Identity of the decisions, independent of run_id. The idempotency receipt matches
+    # on this, because two runs of the same request never share a plan digest.
+    Column("fingerprint", String, nullable=False, server_default=""),
     Column("entry_count", Integer, nullable=False),
     Column("changed", Integer, nullable=False),
     Column("unchanged", Integer, nullable=False),

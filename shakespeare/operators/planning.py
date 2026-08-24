@@ -230,17 +230,27 @@ def check_spec_frozen(obligation_id: str, payload: dict[str, Any]) -> Obligation
 
 
 def check_rendered_mechanically(obligation_id: str, payload: dict[str, Any]) -> ObligationResult:
-    """Every target must be reproducible by re-rendering from the frozen spec.
+    """Every named item must have come out of the renderer.
 
-    This is the obligation that makes naming consistent regardless of the route an agent
-    took: it is verified by digest rather than trusted.
+    The structural guarantee is that `plan.assemble` refuses a hand-written `planned`
+    parameter. This is the observable counterpart: a plan entry that names a file must
+    correspond to a render candidate, so a name cannot appear from anywhere else.
+
+    Collision resolution may rewrite a candidate's name, so the check is on identity
+    rather than on the string — comparing names would fail every legitimate suffix.
     """
-    mismatches = [
+    rendered = {item["item_id"] for item in payload.get("candidates", [])}
+    unaccounted = [
         entry["item_id"]
-        for entry in payload.get("comparisons", [])
-        if entry.get("expected") != entry.get("actual")
+        for entry in payload.get("entries", [])
+        if entry.get("target_relpath") and entry["item_id"] not in rendered
     ]
-    return _result(obligation_id, not mismatches, mismatches=mismatches[:20])
+    return _result(
+        obligation_id,
+        not unaccounted,
+        unaccounted=unaccounted[:20],
+        rendered=len(rendered),
+    )
 
 
 def check_structure_mirrors(obligation_id: str, payload: dict[str, Any]) -> ObligationResult:
@@ -276,7 +286,7 @@ CHECK_REQUIREMENTS: dict[str, tuple[str, ...]] = {
     "every_item_has_text_or_reason": ("extractions",),
     "resolution_accounted": ("items", "candidates", "unrendered"),
     "spec_frozen": ("spec", "digest"),
-    "rendered_mechanically": ("comparisons",),
+    "rendered_mechanically": ("entries", "candidates"),
     "structure_mirrors": ("expected_dirs", "actual_dirs"),
 }
 

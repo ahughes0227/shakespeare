@@ -182,3 +182,51 @@ class TestPlanRecording:
         assert stored is not None
         assert stored.count(ChangeAction.CHANGED) == 3
         audit.close()
+
+
+class TestIdempotency:
+    """Principle 12: re-applying a satisfied plan is a no-op.
+
+    Until now a second identical run failed with "output root already exists", which is
+    the same message a genuine collision produces — so a retry after a network blip looked
+    exactly like a mistake.
+    """
+
+    def test_recommitting_the_same_plan_is_a_no_op(self, tmp_path: Path) -> None:
+        runtime, request, audit, _ = build(tmp_path)
+        first = runtime.run(request)
+        assert first.outcome == "committed", first.detail
+        before = sorted(p.name for p in Path(request.output_root).rglob("*") if p.is_file())
+
+        runtime.grants.clear()
+        again = runtime.run(request)
+        assert again.outcome == "committed"
+        assert "already committed" in again.detail
+        after = sorted(p.name for p in Path(request.output_root).rglob("*") if p.is_file())
+        assert after == before
+        audit.close()
+
+    def test_a_different_plan_to_the_same_root_still_collides(self, tmp_path: Path) -> None:
+        """Idempotency must not become 'silently accept a conflicting write'."""
+        runtime, request, audit, _ = build(tmp_path)
+        assert runtime.run(request).outcome == "committed"
+
+        other = request.model_copy(update={"request_id": "second", "prompt": "different"})
+        (Path(request.input_root) / "2024" / "extra.pdf").write_bytes(b"a new invoice")
+        result = runtime.run(other)
+        assert result.outcome != "committed"
+        audit.close()
+
+    def test_the_receipt_is_keyed_on_plan_and_destination(self, tmp_path: Path) -> None:
+        runtime, request, audit, _ = build(tmp_path)
+        result = runtime.run(request)
+        assert result.plan is not None
+        assert audit.find_commit(
+            plan_digest=result.plan.fingerprint(), output_root=request.output_root
+        )
+        assert (
+            audit.find_commit(plan_digest=result.plan.fingerprint(), output_root="/elsewhere")
+            is None
+        )
+        assert audit.find_commit(plan_digest="0" * 64, output_root=request.output_root) is None
+        audit.close()
