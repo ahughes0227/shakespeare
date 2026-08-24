@@ -5,7 +5,6 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-
 from shakespeare.contracts import PromptArtifact
 from shakespeare.operators.builtin import build_registry
 from shakespeare.planner import PLAN_SIGNATURE, REVIEW_SIGNATURE, ROUTE_SIGNATURE

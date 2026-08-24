@@ -10,7 +10,6 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-
 from shakespeare.agent import CompositionDraft, ModelDomainAgent
 from shakespeare.audit import AuditStore
 from shakespeare.contracts import (
