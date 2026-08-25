@@ -260,183 +260,230 @@ class Runtime:
     ) -> StageOutcome:
         previous_plan: StagePlan | None = None
         outcome: StageOutcome | None = None
+        window = 0
+        attempt = 0
 
-        for attempt in range(1, stage.max_attempts + 1):
-            started_at = utc_now().isoformat()
-            attempts_remaining = stage.max_attempts - attempt
+        # Two nested bounds, and they mean different things. `max_attempts` limits how
+        # often a *failed* attempt may be retried; `max_windows` limits how many
+        # *successful* slices a stage may take. Conflating them would make a stage that
+        # is merely large look like a stage that is failing.
+        continuing = False
+        while True:
+            window += 1
+            attempt = 0
+            continuing = False
+            while attempt < stage.max_attempts:
+                attempt += 1
+                started_at = utc_now().isoformat()
+                attempts_remaining = stage.max_attempts - attempt
 
-            # The budget is resolved before planning so a stage plan is itself charged
-            # against the stage's model allowance.
-            budget = Budget(envelope=stage.budget, items=_item_count(context))
-            plan, usage = self.planner.plan_stage(stage, request, context)
-            self._record_usage(run_id, "planner.stage_plan", usage, budget=budget)
-            self.verifier.verify_stage_plan(plan, stage)
-            if previous_plan is not None:
-                self.verifier.verify_rerun(previous_plan, plan)
-            previous_plan = plan
+                # The budget is resolved before planning so a stage plan is itself charged
+                # against the stage's model allowance.
+                budget = Budget(envelope=stage.budget, items=_item_count(context))
+                plan, usage = self.planner.plan_stage(stage, request, context)
+                self._record_usage(run_id, "planner.stage_plan", usage, budget=budget)
+                self.verifier.verify_stage_plan(plan, stage)
+                if previous_plan is not None:
+                    self.verifier.verify_rerun(previous_plan, plan)
+                previous_plan = plan
 
-            attempt_context = dict(context)
-            compositions: list[tuple[Composition, list[dict[str, Any]]]] = []
-            results: dict[str, tuple[InvocationResult, ...]] = {}
+                attempt_context = dict(context)
+                compositions: list[tuple[Composition, list[dict[str, Any]]]] = []
+                results: dict[str, tuple[InvocationResult, ...]] = {}
 
-            denial: Denial | None = None
-            for goal in plan.activated:
-                domain = stage.domain(goal.domain_id)
-                agent = self.agents.get(domain.id) or self.agents["*"]
-                try:
-                    composition, usage = agent.compose(
-                        domain=domain,
-                        goal=goal,
-                        stage_inputs=attempt_context,
-                        catalog_summary=_catalog_summary(
-                            domain.config_groups, self.config_root
-                        ),
-                    )
-                except GatewayError as failure:
+                denial: Denial | None = None
+                for goal in plan.activated:
+                    domain = stage.domain(goal.domain_id)
+                    agent = self.agents.get(domain.id) or self.agents["*"]
+                    try:
+                        composition, usage = agent.compose(
+                            domain=domain,
+                            goal=goal,
+                            stage_inputs=attempt_context,
+                            catalog_summary=_catalog_summary(
+                                domain.config_groups, self.config_root
+                            ),
+                        )
+                    except GatewayError as failure:
+                        self._record_usage(
+                            run_id,
+                            f"domain.{domain.id}",
+                            failure.usage,
+                            prompt_version=domain.prompt_version,
+                        )
+                        # A model that returns a response violating its contract is exactly
+                        # the recoverable case the attempt loop exists for. Killing the run
+                        # here would also lose the reason.
+                        denial = Denial(
+                            ErrorCode.COMPOSITION_INVALID,
+                            f"{domain.id} returned no usable composition: {failure}",
+                        )
+                        results[domain.id] = ()
+                        break
                     self._record_usage(
                         run_id,
                         f"domain.{domain.id}",
-                        failure.usage,
+                        usage,
+                        budget=budget,
                         prompt_version=domain.prompt_version,
                     )
-                    # A model that returns a response violating its contract is exactly
-                    # the recoverable case the attempt loop exists for. Killing the run
-                    # here would also lose the reason.
-                    denial = Denial(
-                        ErrorCode.COMPOSITION_INVALID,
-                        f"{domain.id} returned no usable composition: {failure}",
-                    )
-                    results[domain.id] = ()
-                    break
-                self._record_usage(
-                    run_id,
-                    f"domain.{domain.id}",
-                    usage,
-                    budget=budget,
-                    prompt_version=domain.prompt_version,
+                    try:
+                        config = compose(
+                            _selections(composition),
+                            allowed_groups=domain.config_groups,
+                            config_root=self.config_root,
+                        )
+                        produced = self.executor.execute(
+                            composition,
+                            domain,
+                            stage_inputs=attempt_context,
+                            config=config,
+                            workspace=workspace,
+                            budget=budget,
+                            stage=stage.name,
+                            attempt=attempt,
+                            granted=frozenset(self.grants.get(domain.id, set())),
+                        )
+                    except (Denial, CompositionError) as refusal:
+                        # A refusal is evidence. Journalling the composition that caused it is
+                        # the only way anyone can see what the agent actually asked for, and an
+                        # invalid composition is exactly the recoverable case the attempt loop
+                        # exists for — so the planner reviews it rather than the run dying here.
+                        denial = (
+                            refusal
+                            if isinstance(refusal, Denial)
+                            else Denial(ErrorCode.COMPOSITION_INVALID, str(refusal))
+                        )
+                        compositions.append((composition, []))
+                        results[domain.id] = ()
+                        break
+
+                    results[domain.id] = produced
+                    if composition.ask is not None:
+                        self._handle_ask(composition.ask, domain=domain, run_id=run_id)
+                    compositions.append((composition, [item.journal_row() for item in produced]))
+                    for item in produced:
+                        if item.output:
+                            attempt_context.update(item.output)
+
+                # Merge this window into what earlier windows produced, before the
+                # obligations are checked. Checking a window against a whole-set
+                # obligation would fail every window but the last, and committing the
+                # window alone would throw away everything before it.
+                self._accumulate(stage, context, attempt_context)
+
+                obligations = tuple(
+                    Obligation(id=name, description=name, checker=name)
+                    for name in stage.obligations
                 )
-                try:
-                    config = compose(
-                        _selections(composition),
-                        allowed_groups=domain.config_groups,
-                        config_root=self.config_root,
-                    )
-                    produced = self.executor.execute(
-                        composition,
-                        domain,
-                        stage_inputs=attempt_context,
-                        config=config,
-                        workspace=workspace,
-                        budget=budget,
-                        stage=stage.name,
-                        attempt=attempt,
-                        granted=frozenset(self.grants.get(domain.id, set())),
-                    )
-                except (Denial, CompositionError) as refusal:
-                    # A refusal is evidence. Journalling the composition that caused it is
-                    # the only way anyone can see what the agent actually asked for, and an
-                    # invalid composition is exactly the recoverable case the attempt loop
-                    # exists for — so the planner reviews it rather than the run dying here.
-                    denial = (
-                        refusal
-                        if isinstance(refusal, Denial)
-                        else Denial(ErrorCode.COMPOSITION_INVALID, str(refusal))
-                    )
-                    compositions.append((composition, []))
-                    results[domain.id] = ()
-                    break
+                payloads = {
+                    obligation.id: _payload_for(obligation.checker, attempt_context)
+                    for obligation in obligations
+                }
+                checked = self.verifier.check_obligations(
+                    obligations, {k: v for k, v in payloads.items() if v is not None}
+                )
 
-                results[domain.id] = produced
-                if composition.ask is not None:
-                    self._handle_ask(composition.ask, domain=domain, run_id=run_id)
-                compositions.append((composition, [item.journal_row() for item in produced]))
-                for item in produced:
-                    if item.output:
-                        attempt_context.update(item.output)
+                if denial is not None and denial.code is not ErrorCode.COMPOSITION_INVALID:
+                    # Budget or approval failures are not recoverable by rerunning: the same
+                    # attempt would hit the same wall.
+                    self._journal_attempt(
+                        run_id=run_id, stage=stage, attempt=attempt, started_at=started_at,
+                        plan=plan, compositions=compositions, checked=checked,
+                        verdict=StageVerdict(
+                            met=False,
+                            decision=StageDecision.ABORT,
+                            rationale=denial.reason,
+                        ),
+                        error_code=str(denial.code),
+                    )
+                    raise denial
 
-            obligations = tuple(
-                Obligation(id=name, description=name, checker=name) for name in stage.obligations
-            )
-            payloads = {
-                obligation.id: _payload_for(obligation.checker, attempt_context)
-                for obligation in obligations
-            }
-            checked = self.verifier.check_obligations(
-                obligations, {k: v for k, v in payloads.items() if v is not None}
-            )
+                verdict, usage = self.planner.review_stage(
+                    stage,
+                    plan,
+                    checked,
+                    _summary(results, denial),
+                    attempts_remaining=attempts_remaining,
+                )
+                self._record_usage(run_id, "planner.stage_review", usage, budget=budget)
+                verdict = constrain(verdict, checked)
+                if denial is not None and verdict.decision is StageDecision.ACCEPT:
+                    verdict = verdict.model_copy(
+                        update={
+                            "met": False,
+                            "decision": StageDecision.RERUN
+                            if attempts_remaining
+                            else StageDecision.ABORT,
+                            "rationale": f"composition refused: {denial.reason}",
+                        }
+                    )
+                if verdict.decision is StageDecision.RERUN and attempts_remaining == 0:
+                    verdict = verdict.model_copy(
+                        update={
+                            "decision": StageDecision.ABORT,
+                            "rationale": (
+                                f"{verdict.rationale} (max_attempts={stage.max_attempts} spent)"
+                            ),
+                        }
+                    )
 
-            if denial is not None and denial.code is not ErrorCode.COMPOSITION_INVALID:
-                # Budget or approval failures are not recoverable by rerunning: the same
-                # attempt would hit the same wall.
                 self._journal_attempt(
                     run_id=run_id, stage=stage, attempt=attempt, started_at=started_at,
-                    plan=plan, compositions=compositions, checked=checked,
-                    verdict=StageVerdict(
-                        met=False,
-                        decision=StageDecision.ABORT,
-                        rationale=denial.reason,
+                    plan=plan, compositions=compositions, checked=checked, verdict=verdict,
+                    error_code=(
+                        str(denial.code)
+                        if denial is not None
+                        else None
+                        if verdict.met
+                        else str(ErrorCode.OBLIGATION_FAILED)
                     ),
-                    error_code=str(denial.code),
-                )
-                raise denial
-
-            verdict, usage = self.planner.review_stage(
-                stage,
-                plan,
-                checked,
-                _summary(results, denial),
-                attempts_remaining=attempts_remaining,
-            )
-            self._record_usage(run_id, "planner.stage_review", usage, budget=budget)
-            verdict = constrain(verdict, checked)
-            if denial is not None and verdict.decision is StageDecision.ACCEPT:
-                verdict = verdict.model_copy(
-                    update={
-                        "met": False,
-                        "decision": StageDecision.RERUN
-                        if attempts_remaining
-                        else StageDecision.ABORT,
-                        "rationale": f"composition refused: {denial.reason}",
-                    }
-                )
-            if verdict.decision is StageDecision.RERUN and attempts_remaining == 0:
-                verdict = verdict.model_copy(
-                    update={
-                        "decision": StageDecision.ABORT,
-                        "rationale": (
-                            f"{verdict.rationale} (max_attempts={stage.max_attempts} spent)"
-                        ),
-                    }
                 )
 
-            self._journal_attempt(
-                run_id=run_id, stage=stage, attempt=attempt, started_at=started_at,
-                plan=plan, compositions=compositions, checked=checked, verdict=verdict,
-                error_code=(
-                    str(denial.code)
-                    if denial is not None
-                    else None
-                    if verdict.met
-                    else str(ErrorCode.OBLIGATION_FAILED)
-                ),
-            )
+                outcome = StageOutcome(
+                    stage=stage,
+                    attempts=attempt,
+                    verdict=verdict,
+                    obligations=checked,
+                    results=results,
+                )
+                if verdict.decision is StageDecision.ACCEPT:
+                    context.clear()
+                    context.update(attempt_context)
+                    return outcome
 
-            outcome = StageOutcome(
-                stage=stage,
-                attempts=attempt,
-                verdict=verdict,
-                obligations=checked,
-                results=results,
-            )
-            if verdict.decision is StageDecision.ACCEPT:
-                context.clear()
-                context.update(attempt_context)
-                return outcome
-            if verdict.decision is StageDecision.ABORT:
-                return outcome
+                if verdict.decision is StageDecision.CONTINUE:
+                    context.clear()
+                    context.update(attempt_context)
+                    if window >= stage.max_windows:
+                        return StageOutcome(
+                            stage=stage,
+                            attempts=attempt,
+                            verdict=verdict.model_copy(
+                                update={
+                                    "decision": StageDecision.ABORT,
+                                    "rationale": (
+                                        f"{verdict.rationale} (max_windows="
+                                        f"{stage.max_windows} spent with work remaining)"
+                                    ),
+                                }
+                            ),
+                            obligations=outcome.obligations,
+                            results=outcome.results,
+                        )
+                    previous_plan = None
+                    continuing = True
+                    break
 
-        assert outcome is not None
-        return outcome
+                if verdict.decision is StageDecision.ABORT:
+                    return outcome
+
+            if continuing:
+                continue  # next window; the break above left the attempt loop, not this one
+
+            # The inner loop ended without a terminal verdict: attempts are spent.
+            assert outcome is not None
+            return outcome
 
     def _record_usage(
         self,
@@ -471,6 +518,30 @@ class Runtime:
             budget.consume_model_invocation(
                 tokens=usage.total_tokens, cost_usd=usage.cost_usd
             )
+
+    @staticmethod
+    def _accumulate(
+        stage: StageSpec, prior: dict[str, Any], attempt: dict[str, Any]
+    ) -> None:
+        """Fold this window's output into what earlier windows produced.
+
+        Only the keys a stage declares, so windowing is never an implicit behaviour that
+        quietly changes what a stage means. A stage that declares nothing is untouched.
+        """
+        for key in stage.accumulates:
+            running = list(prior.get(f"_accumulated_{key}") or [])
+            seen = {
+                item.get("item_id") for item in running if isinstance(item, dict)
+            }
+            for item in attempt.get(key) or []:
+                # A window replayed after a failed attempt must not double-count.
+                if isinstance(item, dict) and item.get("item_id") in seen:
+                    continue
+                running.append(item)
+                if isinstance(item, dict):
+                    seen.add(item.get("item_id"))
+            attempt[f"_accumulated_{key}"] = running
+            attempt[key] = running
 
     def _journal_attempt(
         self,

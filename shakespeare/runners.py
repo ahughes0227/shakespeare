@@ -283,6 +283,14 @@ def _plan_assemble(arguments: dict[str, Any], workspace: Path) -> dict[str, Any]
     }
 
 
+def _next_window(arguments: dict[str, Any], workspace: Path) -> dict[str, Any]:
+    return planning.next_window(
+        items=tuple(arguments.get("items") or arguments.get("scanned") or ()),
+        completed=tuple(arguments.get("completed") or ()),
+        window_size=int(_cfg(arguments, "schedule", "window_size", 20)),
+    )
+
+
 def _obligation_check(arguments: dict[str, Any], workspace: Path) -> dict[str, Any]:
     result = planning.run_check(
         arguments["obligation_id"], arguments["check"], arguments.get("payload", {})
@@ -352,6 +360,7 @@ _ALLOWLISTS: dict[OperatorFamily, dict[str, Operation]] = {
         "render_template": _render_template,
         "normalize": _normalize,
         "collision_resolve": _collision_resolve,
+        "next_window": _next_window,
         "plan_assemble": _plan_assemble,
         "obligation_check": _obligation_check,
     },

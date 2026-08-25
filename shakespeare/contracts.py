@@ -118,6 +118,11 @@ class StageDecision(StrEnum):
     ACCEPT = "accept"
     RERUN = "rerun"
     ABORT = "abort"
+    #: The work done so far is good, and more remains. Distinct from RERUN because a
+    #: rerun repeats a failed attempt while a continuation advances: it keeps what was
+    #: produced and does not spend an attempt. This is how a stage too large for one
+    #: model response gets done in windows instead of failing.
+    CONTINUE = "continue"
 
 
 class FindingSeverity(StrEnum):
@@ -407,6 +412,11 @@ class StageSpec(Contract):
     obligations: tuple[str, ...] = ()
     budget: BudgetEnvelope = BudgetEnvelope()
     side_effects: tuple[str, ...] = ()
+    #: Output keys that accumulate across continuations rather than being replaced.
+    #: Declared by the package, so windowing is never an implicit runtime behaviour.
+    accumulates: tuple[str, ...] = ()
+    #: Hard ceiling on continuations, so a stage that never finishes still terminates.
+    max_windows: int = Field(default=1, ge=1, le=1000)
 
     @model_validator(mode="after")
     def _unique_domains(self) -> StageSpec:

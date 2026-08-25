@@ -123,6 +123,16 @@ BUILTIN: dict[str, tuple[OperatorSpec, str]] = {
         ),
         (
             _spec(
+                "batch.window",
+                OperatorFamily.PURE_TRANSFORM,
+                "Take the next slice of work not yet done, so a large set can be "
+                "processed in windows.",
+                operation="next_window",
+            ),
+            "next_window",
+        ),
+        (
+            _spec(
                 "plan.assemble",
                 OperatorFamily.PURE_TRANSFORM,
                 "Assemble a ChangePlan and enforce balanced accounting.",

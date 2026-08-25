@@ -11,7 +11,14 @@ from shakespeare.compose import CompositionError, catalog, compose, validate_par
 class TestCatalog:
     def test_is_derived_from_disk(self) -> None:
         groups = catalog()
-        assert set(groups) == {"extract", "naming", "collision", "confidence", "write"}
+        assert set(groups) == {
+            "extract",
+            "naming",
+            "collision",
+            "confidence",
+            "write",
+            "schedule",
+        }
         assert "auto_chain" in groups["extract"]
         assert groups["collision"] == frozenset({"suffix_n", "hash_suffix", "fail"})
 

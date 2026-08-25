@@ -320,3 +320,41 @@ def run_check(obligation_id: str, check: str, payload: dict[str, Any]) -> Obliga
     if absent:
         return _result(obligation_id, False, missing_evidence=list(absent))
     return checker(obligation_id, payload)
+
+
+# --------------------------------------------------------------------------------------
+# Scheduling
+# --------------------------------------------------------------------------------------
+
+
+class WindowItem(Contract):
+    item_id: str
+
+
+def next_window(
+    *,
+    items: tuple[dict[str, Any], ...],
+    completed: tuple[Any, ...] = (),
+    window_size: int = 20,
+) -> dict[str, Any]:
+    """Take the next slice of work that has not been done yet.
+
+    This is what lets a stage too large for one model response finish anyway. It is
+    stateless: the caller passes what is already done, so windows can be replayed and the
+    operator holds no hidden position.
+    """
+    # `completed` may arrive as ids or as the accumulated records themselves, since the
+    # accumulator holds records and asking an agent to project them out is friction.
+    done = {
+        item.get("item_id", "") if isinstance(item, dict) else str(item)
+        for item in completed
+    }
+    remaining = [item for item in items if item.get("item_id") not in done]
+    window = remaining[: max(1, window_size)]
+    return {
+        "window": window,
+        "window_size": len(window),
+        "remaining": max(0, len(remaining) - len(window)),
+        "completed_count": len(done),
+        "exhausted": len(remaining) <= len(window),
+    }

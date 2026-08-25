@@ -92,6 +92,18 @@ class PlanAssembleInput(OperatorInput):
     )
 
 
+class WindowInput(OperatorInput):
+    items: list[dict[str, Any]] | None = Field(
+        default=None, description="The full set of work. Bind from fs.scan."
+    )
+    scanned: list[dict[str, Any]] | None = None
+    completed: list[Any] | None = Field(
+        default=None,
+        description="Work already done in earlier windows. Bind from the accumulated "
+        "results; ids or records both work.",
+    )
+
+
 class ObligationCheckInput(OperatorInput):
     obligation_id: str
     check: str
@@ -109,6 +121,7 @@ INPUT_MODELS: dict[str, type[OperatorInput]] = {
     "spec.freeze": FreezeSpecInput,
     "name.render": RenderInput,
     "name.collide": CollisionInput,
+    "batch.window": WindowInput,
     "plan.assemble": PlanAssembleInput,
     "check.assert": ObligationCheckInput,
 }
@@ -126,6 +139,7 @@ OUTPUT_KEYS: dict[str, list[str]] = {
     "spec.freeze": ["spec", "digest"],
     "name.render": ["results", "candidates", "unrendered"],
     "name.collide": ["resolutions"],
+    "batch.window": ["window", "window_size", "remaining", "completed_count", "exhausted"],
     "plan.assemble": ["plan", "entries", "scanned"],
     "check.assert": ["obligation_id", "passed", "detail"],
 }

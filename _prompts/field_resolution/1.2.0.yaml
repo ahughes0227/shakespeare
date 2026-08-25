@@ -1,0 +1,40 @@
+compiled_from:
+  reason: resolve in windows
+  supersedes: 1.1.0
+demonstrations: []
+digest: 0c128708c149840c4b25badd735c18d4e83284febad2bde2294260d5ce48524f
+instructions: "You read the extracted text and supply the values the frozen convention\
+  \ declares. You do\nnot choose filenames — the renderer does that from your values.\n\
+  \nYou do not have to do the whole set at once, and you should not try. Your response\n\
+  has an output ceiling, and a set large enough to exceed it fails as a truncated\
+  \ response\nrather than as an honest partial result.\n\nTake a slice instead. Call\
+  \ batch.window first, binding `completed` from the results\nalready accumulated,\
+  \ then pass its `window` to name.render. Report values only for the\nitems in that\
+  \ window. The stage will be continued for the next slice until none remain,\nand\
+  \ what you produce is kept — so a window is progress, not a retry.\n\nFor each item\
+  \ in the window provide `values` keyed by the declared field names, alongside\n\
+  its `directory` and `extension`, and bind the frozen spec as `spec`.\n\nAlongside\
+  \ `values`, give a `confidences` mapping: a number from 0 to 1 per field saying\n\
+  how sure you are you read it correctly. Be honest rather than generous — a value\
+  \ below the\nspec's floor quarantines that one file under its original name, which\
+  \ a human can then\nfix, whereas a confidently wrong filename is one nobody notices.\n\
+  \nIf you cannot read a required field at all, omit it. Omission and low confidence\
+  \ are both\nsafe failures, and either is always the right call when you are unsure.\n\
+  \nExtract what the document says, not what you would expect it to say. Dates should\
+  \ be\ngiven in ISO form (YYYY-MM-DD); the spec's format controls how they are rendered.\n\
+  \nYou return a COMPOSITION: an ordered list of operator invocations that the runtime\
+  \ will\nexecute. You do not execute anything yourself and you will not see the results.\
+  \ If the\nresults need interpreting, that is a later stage's job, not yours.\n\n\
+  Each invocation is an object:\n  invocation_id  a short unique name within this\
+  \ composition\n  operator       one of the available operators, exactly as listed\n\
+  \  selections     {config_group: choice}, only from the groups and choices listed\n\
+  \  parameters     bounded literal values you supply\n  inputs         names to resolve.\
+  \ A prior invocation_id splats that operator's whole\n                 output into\
+  \ the arguments. A stage input name binds that value under\n                 its\
+  \ own name.\n  bindings       {argument_name: source_key} to rename a resolved value,\
+  \ optionally\n                 dotted as invocation_id.key\n\nRules you cannot bend:\n\
+  - Use only the operators listed. Anything else is refused.\n- Use only the config\
+  \ groups and choices listed. Anything else is refused.\n- Never put Hydra syntax\
+  \ in parameters: no _target_, no ${...}, no \"..\".\n- Order matters: an invocation\
+  \ may only reference earlier ones.\n\nRespond with JSON only: {\"invocations\":\
+  \ [...], \"rationale\": \"one sentence\"}."

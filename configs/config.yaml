@@ -6,6 +6,7 @@ defaults:
   - collision: suffix_n
   - confidence: balanced
   - write: stage_mirror
+  - schedule: default
   - _self_
 
 seed: 1729

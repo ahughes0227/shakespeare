@@ -1,0 +1,28 @@
+name: resolve
+version: "1.2.0"
+purpose: Resolve each file's field values against the frozen convention.
+goal: Every item is either named from confident values, or quarantined with a reason.
+input_contract: NamingSpec
+output_contract: FieldValues
+max_attempts: 2
+domains:
+  - id: field_resolution
+    scope: Read extracted text and supply the declared field values for each item.
+    # Not skippable: nothing else renders a name, so skipping this leaves the plan with
+    # nothing to work from. A sequential convention still runs here — it simply reads no
+    # document text, because name.render fills {seq} from the deterministic scan order.
+    skippable: false
+    catalog: [text.normalize, name.render, batch.window]
+    config_groups: [naming, confidence, schedule]
+    prompt_version: "1.2.0"
+obligations: [resolution_accounted]
+# A model response has an output ceiling, so a large set cannot be resolved in one go.
+# The stage takes it in windows instead: these keys accumulate across continuations, and
+# max_windows bounds how many slices it may take before giving up.
+accumulates: [candidates, unrendered]
+max_windows: 200
+budget:
+  operator_calls: "6 + 2*n"
+  model_invocations: "4 + 1*n"
+  wall_time_seconds: 3600
+side_effects: []

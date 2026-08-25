@@ -56,7 +56,11 @@ class ModelPlanner:
     gateway: Gateway
     profile: ModelProfile
     prompts: PromptStore = field(default_factory=PromptStore)
-    prompt_version: str = "1.0.0"
+    #: Pinned per signature: these are independently versioned artifacts and promoting
+    #: one must not silently move the others.
+    route_version: str = "1.0.0"
+    plan_version: str = "1.0.0"
+    review_version: str = "1.1.0"
 
     def select_workflow(
         self, request: RequestContract, catalog: dict[str, dict[str, str]]
@@ -66,14 +70,14 @@ class ModelPlanner:
         `catalog` holds only the ten-field cards, so adding a workflow extends routing
         without touching this module.
         """
-        artifact = self.prompts.load(ROUTE_SIGNATURE, self.prompt_version)
+        artifact = self.prompts.load(ROUTE_SIGNATURE, self.route_version)
         messages = render_prompt(artifact, prompt=request.prompt, workflows=catalog)
         return self.gateway.complete(self.profile, messages, RouteDecision)
 
     def plan_stage(
         self, stage: StageSpec, request: RequestContract, stage_inputs: dict[str, Any]
     ) -> tuple[StagePlan, ModelUsage | None]:
-        artifact = self.prompts.load(PLAN_SIGNATURE, self.prompt_version)
+        artifact = self.prompts.load(PLAN_SIGNATURE, self.plan_version)
         messages = render_prompt(
             artifact,
             request=request.prompt,
@@ -97,7 +101,7 @@ class ModelPlanner:
         *,
         attempts_remaining: int,
     ) -> tuple[StageVerdict, ModelUsage | None]:
-        artifact = self.prompts.load(REVIEW_SIGNATURE, self.prompt_version)
+        artifact = self.prompts.load(REVIEW_SIGNATURE, self.review_version)
         messages = render_prompt(
             artifact,
             stage=stage.name,
@@ -142,6 +146,10 @@ def constrain(verdict: StageVerdict, results: tuple[ObligationResult, ...]) -> S
     overrule a deterministic check.
     """
     unmet = tuple(item.obligation_id for item in results if not item.passed)
+    if unmet and verdict.decision is StageDecision.CONTINUE:
+        # A continuation legitimately leaves obligations unmet: the work is not finished
+        # yet. It is the one decision that may stand over a failing check.
+        return verdict
     if unmet and verdict.decision is StageDecision.ACCEPT:
         return verdict.model_copy(
             update={
