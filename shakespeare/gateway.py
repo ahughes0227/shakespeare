@@ -168,7 +168,7 @@ def _parse[M: BaseModel](content: str, response_model: type[M]) -> M:
         ) from exc
     try:
         return response_model.model_validate(payload)
-    except ValidationError as exc:
+    except (ValidationError, TypeError, ValueError, KeyError) as exc:
         # A schema violation is permanent for this prompt: retrying the same call would
         # produce the same shape.  The planner decides what to do at the stage boundary.
         raise GatewayError(

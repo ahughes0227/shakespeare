@@ -259,9 +259,17 @@ class Invocation(Contract):
         """
         if isinstance(value, dict) and isinstance(value.get("inputs"), dict):
             supplied = dict(value["inputs"])
-            value = dict(value)
-            value["bindings"] = {**supplied, **(value.get("bindings") or {})}
-            value["inputs"] = tuple(dict.fromkeys(supplied.values()))
+            # Only coerce what is unambiguously a reference. Anything else is left for
+            # normal validation, which explains the problem rather than crashing on it.
+            references = {
+                target: source
+                for target, source in supplied.items()
+                if isinstance(source, str)
+            }
+            if references:
+                value = dict(value)
+                value["bindings"] = {**references, **(value.get("bindings") or {})}
+                value["inputs"] = tuple(dict.fromkeys(references.values()))
         return value
 
     @field_validator("bindings", mode="before")
