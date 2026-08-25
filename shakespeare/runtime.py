@@ -14,6 +14,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 from .artifacts import ArtifactStore
 from .audit import AuditStore
@@ -126,6 +127,10 @@ class Runtime:
                 usage_sink=lambda role, usage, version: self._record_usage(
                     run_id, role, usage, prompt_version=version
                 ),
+                ask_sink=lambda ask, capability_id: self._handle_ask(
+                    ask, capability_id=capability_id, run_id=run_id
+                ),
+                grants=self.grants,
             ),
             artifacts=artifacts,
             audit=self.audit,
@@ -259,6 +264,49 @@ class Runtime:
             satisfied=result.satisfied,
             detail=detail,
         )
+
+    def _handle_ask(self, ask: Any, *, capability_id: str, run_id: str) -> str | None:
+        """Evaluate a capability's component request once its round has run.
+
+        Deliberately after: an admitted component becomes usable on the next round rather
+        than mid-organization, which keeps a round a single coherent unit of work.
+        """
+        from .contracts import (
+            AdmissionChoice,
+            AdmissionDisposition,
+            DecidedBy,
+            OperatorRequest,
+        )
+
+        request = OperatorRequest(
+            request_id=uuid4().hex,
+            run_id=run_id,
+            domain_id=capability_id,
+            kind=ask.kind,
+            family=ask.family,
+            name=ask.name,
+            features=ask.features,
+            dependencies=ask.dependencies,
+            declared_side_effects=ask.declared_side_effects,
+            rationale=ask.rationale,
+        )
+        if self.admission is None:
+            # Still recorded: the request is evidence of a gap in the capability package.
+            self.audit.record_operator_request(request)
+            return None
+
+        report, candidate = self.admission.evaluate(request)
+        if report.disposition is not AdmissionDisposition.AUTO_ADMIT:
+            return None
+        self.admission.decide(
+            report,
+            candidate,
+            decided_by=DecidedBy.PLANNER,
+            choice=AdmissionChoice.APPROVE,
+            rationale="auto-admitted: low-risk declarative variant",
+        )
+        self.grants.setdefault(capability_id, set()).add(candidate.spec.name)
+        return str(candidate.spec.name)
 
     # -- helpers -----------------------------------------------------------------------
 

@@ -105,7 +105,11 @@ class WorkflowGraph:
             return {"approved": True}
         from langgraph.types import interrupt
 
-        plan = self.planned.plan if self.planned else None
+        plan = (self.planned.plan if self.planned else None) or (
+            self.runtime.audit.recorded_plan(state.get("run_id") or "")
+            if state.get("run_id")
+            else None
+        )
         decision = interrupt(
             {
                 "kind": "commit_approval",
@@ -126,9 +130,32 @@ class WorkflowGraph:
         return {"approved": bool(decision)}
 
     def _commit(self, state: GraphState) -> dict[str, Any]:
-        assert self.planned is not None
-        committed = self.runtime.commit_planned(self.planned)
+        planned = self.planned or self._recover(state)
+        if planned is None:
+            return {"outcome": "aborted", "detail": "no plan to commit"}
+        committed = self.runtime.commit_planned(planned)
         return {"outcome": committed.outcome, "detail": committed.detail}
+
+    def _recover(self, state: GraphState) -> RunResult | None:
+        """Rebuild the planning result from the audit log.
+
+        A run resumed in a fresh process has nothing in memory. The plan is already a
+        durable fact, so it is recovered from there rather than carried in the checkpoint
+        — which keeps the checkpoint small and makes resume genuinely process-independent.
+        """
+        run_id = state.get("run_id")
+        if not run_id:
+            return None
+        plan = self.runtime.audit.recorded_plan(run_id)
+        if plan is None:
+            return None
+        return RunResult(
+            run_id=run_id,
+            workflow_id=state.get("workflow_id", ""),
+            outcome="planned",
+            plan=plan,
+            planned_output_root=state.get("planned_output_root"),
+        )
 
     def _abandon(self, state: GraphState) -> dict[str, Any]:
         run_id = state.get("run_id")

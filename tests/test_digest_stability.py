@@ -28,11 +28,11 @@ ROOT = Path(__file__).resolve().parents[1]
 PROBE = """
 import sys
 sys.path.insert(0, {root!r})
-from shakespeare.stages import StageRegistry
+from shakespeare.capabilities import CapabilityRegistry
 from shakespeare.workflows import WorkflowRegistry
 from shakespeare.operators.builtin import build_registry
-stages = StageRegistry()
-registry = WorkflowRegistry(stages=stages, operators=build_registry())
+capabilities = CapabilityRegistry()
+registry = WorkflowRegistry(capabilities=capabilities, operators=build_registry())
 print(registry.get("rename_files").digest())
 """
 
@@ -109,12 +109,12 @@ class TestReplayDependsOnIt:
         assert result.returncode == 0, result.stderr
         recorded = result.stdout.strip()
 
+        from shakespeare.capabilities import CapabilityRegistry
         from shakespeare.operators.builtin import build_registry
-        from shakespeare.stages import StageRegistry
         from shakespeare.workflows import WorkflowRegistry
 
-        stages = StageRegistry()
-        current = WorkflowRegistry(stages=stages, operators=build_registry())
+        capabilities = CapabilityRegistry()
+        current = WorkflowRegistry(capabilities=capabilities, operators=build_registry())
         assert_same_workflow(recorded, current.get("rename_files").digest())
 
     def test_a_genuinely_changed_workflow_is_still_refused(self) -> None:

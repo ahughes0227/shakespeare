@@ -66,11 +66,11 @@ def _seed_request(
 
 
 class TestInspection:
-    def test_workflows_validate_shows_the_contract_chain(self) -> None:
+    def test_workflows_validate_shows_the_goal_graph(self) -> None:
         code, output = invoke("workflows", "validate")
         assert code == 0
         assert "rename_files" in output
-        assert "RequestContract" in output and "ReviewEvidence" in output
+        assert "inventoried" in output and "ReviewEvidence" in output
 
     def test_operators_marks_mutation_operators_runtime_only(self) -> None:
         code, output = invoke("operators")
@@ -78,16 +78,16 @@ class TestInspection:
         assert "runtime only" in output
         assert "fs.commit" in output
 
-    def test_stages_marks_skippable_domains(self) -> None:
-        code, output = invoke("stages")
+    def test_capabilities_shows_what_each_produces(self) -> None:
+        code, output = invoke("capabilities")
         assert code == 0
-        assert "field_resolution*" in output
+        assert "survey" in output and "FileInventory" in output
 
-    def test_prompts_list_shows_what_each_stage_pins(self) -> None:
+    def test_prompts_list_shows_what_each_capability_pins(self) -> None:
         code, output = invoke("prompts", "list")
         assert code == 0
-        assert "convention_design" in output
-        assert "convention @ 1.2.0" in output
+        assert "convene" in output
+        assert "planner.judge_gate" in output
 
 
 class TestRequests:

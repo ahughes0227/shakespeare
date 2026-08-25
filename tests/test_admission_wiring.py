@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 from shakespeare.admission import AdmissionService
-from shakespeare.agent import FakeDomainAgent
+from shakespeare.capabilities.runner import Organization
 from shakespeare.contracts import (
     Composition,
     Invocation,
@@ -21,8 +21,8 @@ from shakespeare.contracts import (
 from shakespeare.operators.builtin import build_registry
 from shakespeare.verifier import Denial, Verifier
 
+from harness import INVOICES, build, rename_agent, seed_invoices, values_for
 from test_admission import StubRenderer, passing_tests
-from test_rename_files import INVOICES, _values, build, build_agents, seed_invoices
 
 
 def ask(
@@ -45,19 +45,23 @@ def ask(
 
 
 def _with_ask(tmp_path: Path, request_ask: OperatorAsk, *, wire: bool = True):
-    # Seed first: item ids are content-addressed, so the agents must be built against the
+    # Seed first: item ids are content-addressed, so the agent must be built against the
     # bytes the run will actually see.
     source = seed_invoices(tmp_path / "in", INVOICES)
-    agents = build_agents(_values(source, INVOICES))
-    agents["file_validity"] = FakeDomainAgent().queue(
-        "file_validity",
-        Composition(
-            domain_id="file_validity",
-            invocations=(Invocation(invocation_id="scan", operator="fs.scan", inputs=("root",)),),
+    agent = rename_agent(values_for(source, INVOICES))
+    # The survey capability asks for a component it does not have.
+    agent.plans["survey"] = [
+        Organization(
+            invocations=(
+                Invocation(invocation_id="scan", operator="fs.scan", inputs=("root",)),
+            ),
+            intent="walk the tree",
+            sufficient=True,
+            publishes="FileInventory",
             ask=request_ask,
-        ),
-    )
-    runtime, request, audit, _ = build(tmp_path, agents=agents)
+        )
+    ]
+    runtime, request, audit, _ = build(tmp_path, agents={"*": agent})
     if wire:
         runtime.admission = AdmissionService(
             registry=runtime.operators,
@@ -77,14 +81,14 @@ class TestAutoAdmissionInsideARun:
         result = runtime.run(request)
         assert result.outcome == "committed", result.detail
         assert "text.titlecase" in runtime.operators
-        assert runtime.grants["file_validity"] == {"text.titlecase"}
+        assert runtime.grants["survey"] == {"text.titlecase"}
         audit.close()
 
     def test_the_grant_is_scoped_to_the_requesting_domain(self, tmp_path: Path) -> None:
         """Admitting an operator for one domain must not widen another's surface."""
         runtime, request, audit = _with_ask(tmp_path, ask())
         runtime.run(request)
-        assert "change_composition" not in runtime.grants
+        assert "compose" not in runtime.grants
         audit.close()
 
     def test_the_full_provenance_is_queryable(self, tmp_path: Path) -> None:
@@ -153,12 +157,13 @@ class TestWithoutAnAdmissionService:
 
 class TestGrantBounds:
     def test_a_grant_lets_the_verifier_accept_an_admitted_operator(self) -> None:
-        from shakespeare.stages import StageRegistry
+        from shakespeare.capabilities import CapabilityRegistry
+        from shakespeare.capabilities.runner import _as_domain
 
         verifier = Verifier(build_registry())
-        domain = StageRegistry().get("intake@1.0.0").domain("file_validity")
+        domain = _as_domain(CapabilityRegistry().get("survey"))
         composition = Composition(
-            domain_id="file_validity",
+            domain_id="survey",
             invocations=(Invocation(invocation_id="t", operator="text.normalize"),),
         )
         with pytest.raises(Denial, match="outside the catalog"):
@@ -167,12 +172,13 @@ class TestGrantBounds:
 
     def test_a_grant_cannot_unlock_a_mutation_operator(self) -> None:
         """Even a granted operator is refused if it writes: agents plan, the runtime commits."""
-        from shakespeare.stages import StageRegistry
+        from shakespeare.capabilities import CapabilityRegistry
+        from shakespeare.capabilities.runner import _as_domain
 
         verifier = Verifier(build_registry())
-        domain = StageRegistry().get("intake@1.0.0").domain("file_validity")
+        domain = _as_domain(CapabilityRegistry().get("survey"))
         composition = Composition(
-            domain_id="file_validity",
+            domain_id="survey",
             invocations=(Invocation(invocation_id="c", operator="fs.commit"),),
         )
         with pytest.raises(Denial, match="reserved to the runtime"):

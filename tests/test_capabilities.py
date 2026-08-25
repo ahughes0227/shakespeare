@@ -12,8 +12,8 @@ from pathlib import Path
 
 import pytest
 from shakespeare.artifacts import ArtifactStore, Quality
-from shakespeare.capabilities import CapabilityRunner, CapabilitySpec, Organization
-from shakespeare.capabilities.runner import ScriptedCapabilityAgent
+from shakespeare.capabilities import CapabilityRunner, CapabilitySpec
+from shakespeare.capabilities.runner import Organization, ScriptedCapabilityAgent
 from shakespeare.contracts import BudgetEnvelope, Invocation, SemanticCard
 from shakespeare.executor import Budget, Executor
 from shakespeare.operators.builtin import build_registry

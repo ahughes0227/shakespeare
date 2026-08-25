@@ -5,39 +5,43 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from shakespeare.capabilities import CapabilityRegistry
 from shakespeare.contracts import PromptArtifact
 from shakespeare.operators.builtin import build_registry
-from shakespeare.planner import PLAN_SIGNATURE, REVIEW_SIGNATURE, ROUTE_SIGNATURE
+from shakespeare.planner import (
+    CAPABILITY_SIGNATURE,
+    GOAL_SIGNATURE,
+    JUDGE_SIGNATURE,
+    ROUTE_SIGNATURE,
+)
 from shakespeare.prompts import PromptStore, PromptStoreError
-from shakespeare.stages import StageRegistry
 from shakespeare.workflows import WorkflowRegistry
 
 
 class TestCompleteness:
-    def test_every_pinned_domain_prompt_exists(self) -> None:
-        """A stage pins a prompt version; a missing artifact breaks the run at that stage."""
+    def test_every_pinned_capability_prompt_exists(self) -> None:
+        """A capability pins a prompt version; a missing artifact breaks it at run time."""
         store = PromptStore()
-        stages = StageRegistry()
-        for ref in stages.refs():
-            for domain in stages.get(ref).domains:
-                artifact = store.load(domain.id, domain.prompt_version)
-                assert artifact.instructions.strip()
+        capabilities = CapabilityRegistry()
+        for capability_id in capabilities.ids():
+            spec = capabilities.get(capability_id)
+            assert store.load(capability_id, spec.prompt_version).instructions.strip()
 
-    @pytest.mark.parametrize("signature", [ROUTE_SIGNATURE, PLAN_SIGNATURE, REVIEW_SIGNATURE])
+    @pytest.mark.parametrize(
+        "signature",
+        [ROUTE_SIGNATURE, GOAL_SIGNATURE, CAPABILITY_SIGNATURE, JUDGE_SIGNATURE],
+    )
     def test_planner_prompts_exist(self, signature: str) -> None:
         assert PromptStore().load(signature, "1.0.0").instructions.strip()
 
-    def test_domain_ids_are_unique_within_a_spine(self) -> None:
-        """Prompts resolve by domain id, so a duplicate would be ambiguous."""
-        stages = StageRegistry()
-        registry = WorkflowRegistry(stages=stages, operators=build_registry())
+    def test_every_capability_a_goal_names_is_registered(self) -> None:
+        """A goal naming an unregistered capability is unanswerable."""
+        capabilities = CapabilityRegistry()
+        registry = WorkflowRegistry(capabilities=capabilities, operators=build_registry())
         for workflow_id in registry.ids():
-            ids = [
-                domain.id
-                for stage in registry.get(workflow_id).stages
-                for domain in stage.domains
-            ]
-            assert len(ids) == len(set(ids)), workflow_id
+            for goal in registry.get(workflow_id).spec.goals:
+                for name in goal.capabilities:
+                    assert name in capabilities, f"{workflow_id}.{goal.id} -> {name}"
 
 
 class TestPinning:
@@ -62,24 +66,22 @@ class TestPinning:
         assert store.versions("x.y") == ("1.0.0", "1.1.0")
         assert store.load("x.y", "1.0.0").instructions == "first"
 
-    def test_prompt_version_participates_in_the_workflow_digest(self) -> None:
-        stages = StageRegistry()
-        registry = WorkflowRegistry(stages=stages, operators=build_registry())
+    def test_a_changed_goal_changes_the_workflow_digest(self) -> None:
+        """The digest pins the intent, so altering a gate is a visible change."""
+        capabilities = CapabilityRegistry()
+        registry = WorkflowRegistry(capabilities=capabilities, operators=build_registry())
         original = registry.get("rename_files")
         before = original.digest()
 
-        bumped_stages = tuple(
-            stage.model_copy(
-                update={
-                    "domains": tuple(
-                        domain.model_copy(update={"prompt_version": "9.9.9"})
-                        for domain in stage.domains
-                    )
-                }
-            )
-            for stage in original.stages
-        )
+        goals = list(original.spec.goals)
+        goals[0] = goals[0].model_copy(update={"statement": "something else entirely"})
         after = original.__class__(
-            spec=original.spec, card=original.card, stages=bumped_stages
+            spec=original.spec.model_copy(update={"goals": tuple(goals)}),
+            card=original.card,
         ).digest()
-        assert before != after, "promoting a prompt must change the workflow digest"
+        assert before != after
+
+    def test_a_capability_pins_its_prompt_version(self) -> None:
+        capabilities = CapabilityRegistry()
+        for capability_id in capabilities.ids():
+            assert capabilities.get(capability_id).prompt_version

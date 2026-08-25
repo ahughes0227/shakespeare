@@ -170,14 +170,14 @@ class TestWriteContainment:
 
         assert attempted == []
 
-    def test_no_stage_package_grants_a_mutation_operator(self) -> None:
-        """Asserted across every registered stage, not only the ones a test happens to use."""
-        from shakespeare.stages import StageRegistry
+    def test_no_capability_grants_a_mutation_operator(self) -> None:
+        """Asserted across every registered capability, not only the ones a test uses."""
+        from shakespeare.capabilities import CapabilityRegistry
 
-        registry = StageRegistry()
-        for ref in registry.refs():
-            for domain in registry.get(ref).domains:
-                assert not (domain.catalog & RUNTIME_ONLY), f"{ref}.{domain.id}"
+        registry = CapabilityRegistry()
+        for capability_id in registry.ids():
+            catalog = registry.get(capability_id).catalog
+            assert not (catalog & RUNTIME_ONLY), capability_id
 
     def test_every_mutation_operator_declares_a_write(self) -> None:
         for spec, _ in BUILTIN.values():

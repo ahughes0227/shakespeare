@@ -9,27 +9,23 @@ import os
 from pathlib import Path
 
 import pytest
-from shakespeare.agent import FakeDomainAgent
+from shakespeare.agent import FakeCapabilityAgent
 from shakespeare.audit import AuditStore
+from shakespeare.capabilities import CapabilityRegistry
 from shakespeare.contracts import (
     BudgetEnvelope,
-    Composition,
-    Invocation,
-    StageDecision,
-    StagePlan,
+    RouteDecision,
 )
 from shakespeare.executor import Budget, Executor
 from shakespeare.graph import WorkflowGraph, sqlite_checkpointer
 from shakespeare.operators.builtin import build_registry
-from shakespeare.planner import FakePlanner
+from shakespeare.planner import ScriptedGoalPlanner
 from shakespeare.runtime import Runtime
-from shakespeare.stages import StageRegistry
 from shakespeare.telemetry import RecordingExporter, Tracer
 from shakespeare.verifier import Verifier
 from shakespeare.workflows import WorkflowRegistry
 
-from harness import goal
-from test_rename_files import INVOICES, _values, build, build_agents, seed_invoices
+from harness import INVOICES, build, rename_agent, seed_invoices, values_for
 
 
 def _revive(
@@ -39,21 +35,21 @@ def _revive(
     source = seed_invoices(tmp_path / "in", INVOICES)
     operators = build_registry()
     verifier = Verifier(operators)
-    stages = StageRegistry()
+    capabilities = CapabilityRegistry()
     tracer = Tracer("revived", [RecordingExporter()])
     audit = AuditStore(audit_path or (tmp_path / "audit.sqlite3"))
-
-    from test_rename_files import build_planner
 
     return (
         Runtime(
             operators=operators,
-            stages=stages,
-            workflows=WorkflowRegistry(stages=stages, operators=operators),
+            capabilities=capabilities,
+            workflows=WorkflowRegistry(capabilities=capabilities, operators=operators),
             verifier=verifier,
             executor=Executor(operators, verifier, tracer=tracer),
-            planner=build_planner(),
-            agents=build_agents(_values(source, INVOICES)),
+            planner=ScriptedGoalPlanner(
+                route=RouteDecision(workflow_id="rename_files")
+            ),
+            agents={"*": rename_agent(values_for(source, INVOICES))},
             audit=audit,
             workspace_root=tmp_path / "work",
             tracer=tracer,
@@ -86,13 +82,7 @@ class TestDurability:
         audit.close()
 
         revived_runtime, revived_audit = _revive(tmp_path, request)
-        revived = WorkflowGraph(
-            runtime=revived_runtime,
-            workflow=revived_runtime.workflows.get("rename_files"),
-            request=request,
-            staging=(tmp_path / "work" / run_id / "staging"),
-            workspace=tmp_path / "work" / run_id,
-        )
+        revived = WorkflowGraph(runtime=revived_runtime, request=request)
         with sqlite_checkpointer(checkpoint) as saver:
             from langgraph.types import Command
 
@@ -108,35 +98,31 @@ class TestDurability:
     def test_resume_requires_the_same_audit_log_not_just_the_checkpoint(
         self, tmp_path: Path
     ) -> None:
-        """A resumed run writes facts about a run_id that lives in the original log.
+        """The checkpoint carries the work; the audit log carries the plan.
 
-        Pointing a resume at a fresh audit database fails on the foreign key, which is
-        the right answer: the checkpoint carries the work, the audit log carries the
-        history, and a resume needs both.
+        A resume pointed at a fresh audit database finds no plan and refuses, rather than
+        committing something it cannot account for.
         """
-        import sqlalchemy.exc
+        from langgraph.types import Command
         from shakespeare.graph import run_with_graph
 
         runtime, request, audit, _ = build(tmp_path)
         checkpoint = tmp_path / "cp.sqlite3"
         with sqlite_checkpointer(checkpoint) as saver:
-            _, _, run_id = run_with_graph(runtime, request, checkpointer=saver)
+            _, _, thread = run_with_graph(runtime, request, checkpointer=saver)
         audit.close()
 
         stranded, stranded_audit = _revive(tmp_path, request, audit_path=tmp_path / "other.db")
-        graph = WorkflowGraph(
-            runtime=stranded,
-            workflow=stranded.workflows.get("rename_files"),
-            request=request,
-            staging=tmp_path / "work" / run_id / "staging",
-            workspace=tmp_path / "work" / run_id,
-        )
+        graph = WorkflowGraph(runtime=stranded, request=request)
         with sqlite_checkpointer(checkpoint) as saver:
-            from langgraph.types import Command
-
             compiled = graph.build(saver)
-            with pytest.raises(sqlalchemy.exc.IntegrityError):
-                compiled.invoke(Command(resume=True), {"configurable": {"thread_id": run_id}})
+            final = compiled.invoke(
+                Command(resume=True), {"configurable": {"thread_id": thread}}
+            )
+
+        assert final["outcome"] == "aborted"
+        assert "no plan to commit" in final["detail"]
+        assert not Path(request.output_root).exists()
         stranded_audit.close()
 
     def test_the_audit_log_holds_no_partial_facts_after_an_interrupt(
@@ -196,69 +182,62 @@ class TestCostReconciliation:
         audit.close()
 
 
-class TestOcrRerunCase:
-    """The plan's named rerun case: extraction unavailable for part of the set."""
+class TestUnsatisfiableGoal:
+    """The framework's version of the OCR rerun case.
 
-    def _agents(self, items: list[dict[str, object]], *, starve: bool) -> dict[str, object]:
-        agents = build_agents(items)
-        if starve:
-            # An extract composition that produces no extractions at all, so the
-            # every_item_has_text_or_reason obligation has no evidence and fails closed.
-            agents["content_acquisition"] = FakeDomainAgent().queue(
-                "content_acquisition",
-                Composition(
-                    domain_id="content_acquisition",
-                    invocations=(
-                        Invocation(
-                            invocation_id="dirs", operator="text.normalize",
-                            parameters={"values": {"probe": "x"}},
-                        ),
-                    ),
-                ),
-            )
-        return agents
+    A capability that cannot produce the evidence its goal requires does not fail
+    silently: the gate reports what is missing, the goal is retried, and the run aborts
+    without creating an output root rather than committing a partial answer.
+    """
 
-    def _planner(self) -> FakePlanner:
-        from test_rename_files import build_planner
-
-        planner = build_planner()
-        # Two distinct plans, because a rerun repeating the previous one is refused.
-        planner.stage_plans["extract"] = [
-            StagePlan(activated=(goal("content_acquisition"),)),
-            StagePlan(
-                activated=(
-                    goal("content_acquisition", "retry the items that returned no text"),
-                )
-            ),
-        ]
-        return planner
-
-    def test_a_failed_extraction_reruns_then_aborts_without_output(
+    def test_a_goal_whose_evidence_never_arrives_aborts_cleanly(
         self, tmp_path: Path
     ) -> None:
-        source = seed_invoices(tmp_path / "in", INVOICES)
-        agents = self._agents(_values(source, INVOICES), starve=True)
-        runtime, request, audit, _ = build(tmp_path, planner=self._planner(), agents=agents)
+        from shakespeare.capabilities.runner import Organization
+
+        agent = FakeCapabilityAgent()
+        agent.queue("survey", Organization(intent="produce nothing", sufficient=True))
+        runtime, request, audit, _ = build(tmp_path, agents={"*": agent})
 
         result = runtime.run(request)
         assert result.outcome == "aborted", result.detail
-        assert not Path(request.output_root).exists(), "an aborted run leaves nothing behind"
-
-        attempts = audit.dag(result.run_id, "extract")["attempts"]
-        assert len(attempts) == 2, "both attempts must be journaled, including the failure"
-        assert attempts[0]["verdict"]["decision"] == "rerun"
+        assert not Path(request.output_root).exists()
+        assert "inventoried" not in result.satisfied
         audit.close()
 
-    def test_the_obligation_is_what_fails_it(self, tmp_path: Path) -> None:
-        source = seed_invoices(tmp_path / "in", INVOICES)
-        agents = self._agents(_values(source, INVOICES), starve=True)
-        runtime, request, audit, _ = build(tmp_path, planner=self._planner(), agents=agents)
-        result = runtime.run(request)
+    def test_the_gate_says_what_is_missing(self, tmp_path: Path) -> None:
+        from shakespeare.capabilities.runner import Organization
+        from shakespeare.goals import GateOutcome
 
-        extract = next(o for o in result.stages if o.stage.name == "extract")
-        assert "every_item_has_text_or_reason" in extract.verdict.unmet
-        assert extract.verdict.decision is not StageDecision.ACCEPT
+        agent = FakeCapabilityAgent()
+        agent.queue("survey", Organization(intent="produce nothing", sufficient=True))
+        runtime, request, audit, _ = build(tmp_path, agents={"*": agent})
+        result = runtime.run(request, commit=False)
+
+        blocked = result.attempts[0].gate
+        assert blocked.outcome is GateOutcome.BLOCKED
+        assert blocked.missing_kinds == ("FileInventory",)
         audit.close()
+
+    def test_a_goal_is_retried_before_the_run_gives_up(self, tmp_path: Path) -> None:
+        from shakespeare.capabilities.runner import Organization
+
+        agent = FakeCapabilityAgent()
+        agent.queue("survey", Organization(intent="produce nothing", sufficient=True))
+        runtime, request, audit, _ = build(tmp_path, agents={"*": agent})
+        result = runtime.run(request, commit=False)
+
+        attempts = [a for a in result.attempts if a.goal_id == "inventoried"]
+        assert len(attempts) == runtime_max_attempts(runtime), "the goal is retried, not abandoned"
+        audit.close()
+
+
+def runtime_max_attempts(runtime) -> int:
+    from shakespeare.control import Controller
+
+    return Controller.max_goal_attempts if isinstance(
+        Controller.max_goal_attempts, int
+    ) else 3
 
 
 @pytest.mark.skipif(

@@ -25,7 +25,7 @@ from shakespeare.contracts import ChangeAction, ChangePlan
 from shakespeare.operators.planning import RenameEntry
 from typer.testing import CliRunner
 
-from test_rename_files import INVOICES, build, seed_invoices
+from harness import INVOICES, build, seed_invoices
 
 runner = CliRunner()
 

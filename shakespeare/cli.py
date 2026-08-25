@@ -18,6 +18,7 @@ from rich.table import Table
 
 from .audit.metrics import snapshot
 from .bootstrap import Services, build_runtime, default_state_root
+from .capabilities import CapabilityRegistryError
 from .contracts import (
     AdmissionChoice,
     AdmissionDecision,
@@ -31,7 +32,6 @@ from .contracts import (
 from .gateway import GatewayError
 from .operators import mutation
 from .planner import FakePlanner, Planner
-from .stages import StageRegistryError
 from .workflows import WorkflowRegistryError
 
 app = typer.Typer(
@@ -69,7 +69,7 @@ def _services(state_root: Path | None = None, **overrides: object) -> Services:
             f"{exc}\n\nSet SHAKESPEARE_MODEL to a fixed LiteLLM model id, for example:\n"
             f"  export SHAKESPEARE_MODEL=openrouter/openai/gpt-5-mini"
         )
-    except (StageRegistryError, WorkflowRegistryError) as exc:
+    except (CapabilityRegistryError, WorkflowRegistryError) as exc:
         _fail(f"package error: {exc}")
     raise AssertionError("unreachable")
 

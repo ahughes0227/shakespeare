@@ -1,7 +1,7 @@
 """The closest thing to a live run that works without an API key.
 
-Everything is real except the model itself: ModelPlanner and ModelDomainAgent run, real
-prompts load and digest-check, real operators execute, and real files are committed. Only
+Everything is real except the model: ModelGoalPlanner and ModelCapabilityAgent run, real
+prompts load and digest-check, real components execute, real files are committed. Only
 the gateway is scripted.
 
 This is what would catch a prompt whose declared response shape no longer matches its
@@ -13,24 +13,18 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from shakespeare.agent import CompositionDraft, ModelDomainAgent
+from shakespeare.agent import ModelCapabilityAgent
 from shakespeare.audit import AuditStore
-from shakespeare.contracts import (
-    ChangeAction,
-    RequestContract,
-    RouteDecision,
-    StageDecision,
-    StagePlan,
-    StageVerdict,
-)
+from shakespeare.capabilities import CapabilityRegistry
+from shakespeare.capabilities.runner import Organization
+from shakespeare.contracts import ChangeAction, RequestContract, RouteDecision
 from shakespeare.executor import Executor
 from shakespeare.gateway import FakeGateway, ModelProfile
 from shakespeare.operators.builtin import build_registry
 from shakespeare.operators.filesystem import scan
-from shakespeare.planner import ModelPlanner
+from shakespeare.planner import CapabilityChoice, GoalChoice, Judgment, ModelGoalPlanner
 from shakespeare.prompts import PromptStore
 from shakespeare.runtime import Runtime
-from shakespeare.stages import StageRegistry
 from shakespeare.telemetry import RecordingExporter, Tracer
 from shakespeare.verifier import Verifier
 from shakespeare.workflows import WorkflowRegistry
@@ -56,37 +50,22 @@ SPEC = {
 }
 
 
-def _draft(*invocations: dict[str, object], rationale: str = "") -> dict[str, object]:
-    return {"invocations": list(invocations), "rationale": rationale}
-
-
-def _plan(*domain_ids: str, skipped: tuple[str, ...] = ()) -> dict[str, object]:
+def _organization(*invocations, publishes: str, intent: str = "") -> dict:
     return {
-        "activated": [
-            {
-                "domain_id": domain_id,
-                "goal": f"complete the {domain_id} work for this request",
-                "success_criterion": "the stage obligations pass",
-                "obligation_refs": [],
-            }
-            for domain_id in domain_ids
-        ],
-        "skipped": [
-            {"domain_id": domain_id, "reason": "not required for this request"}
-            for domain_id in skipped
-        ],
+        "invocations": list(invocations),
+        "intent": intent,
+        "sufficient": True,
+        "publishes": publishes,
+        "quality": "complete",
+        "summary": {},
     }
 
 
-ACCEPT = {"met": True, "decision": "accept", "unmet": [], "revised_goals": [], "rationale": "ok"}
-
-
-def _items(root: Path) -> list[dict[str, object]]:
-    scanned, _ = scan(root)
-    output = []
-    for item in scanned:
+def _items(root: Path) -> list[dict]:
+    resolved = []
+    for item in scan(root)[0]:
         vendor, number, po, date = TREE[item.relpath]
-        output.append(
+        resolved.append(
             {
                 "item_id": item.item_id,
                 "directory": str(Path(item.relpath).parent),
@@ -99,47 +78,50 @@ def _items(root: Path) -> list[dict[str, object]]:
                 },
             }
         )
-    return output
+    return resolved
 
 
-def _script(gateway: FakeGateway, items: list[dict[str, object]]) -> FakeGateway:
+def _script(gateway: FakeGateway, items: list[dict]) -> FakeGateway:
     gateway.queue(
         RouteDecision,
         {"workflow_id": "rename_files", "supported": True, "rationale": "renaming by content"},
     )
+    # One ambiguous choice in the graph: readable and convention_frozen open together.
+    gateway.queue(GoalChoice, {"goal_id": "readable", "rationale": "text first"})
+    gateway.queue(CapabilityChoice, {"capability_id": "acquire", "rationale": "reads files"})
     gateway.queue(
-        StagePlan,
-        _plan("file_validity", "safety_preflight"),
-        _plan("content_acquisition"),
-        _plan("convention_design"),
-        _plan("field_resolution"),
-        _plan("change_composition"),
-        _plan("structural_review", "exception_review"),
-    )
-    gateway.queue(
-        CompositionDraft,
-        _draft({"invocation_id": "scan", "operator": "fs.scan", "inputs": ["root"]}),
-        _draft({"invocation_id": "dirs", "operator": "fs.dirs", "inputs": ["root"]}),
-        _draft(
+        Organization,
+        _organization(
+            {"invocation_id": "scan", "operator": "fs.scan", "inputs": ["root"]},
+            publishes="FileInventory",
+            intent="walk the tree",
+        ),
+        _organization(
             {
                 "invocation_id": "extract",
                 "operator": "doc.extract",
                 "selections": {"extract": "auto_chain"},
                 "inputs": ["root", "items"],
-            }
+            },
+            publishes="ExtractedContent",
+            intent="read them",
         ),
-        _draft(
-            {"invocation_id": "freeze", "operator": "spec.freeze", "parameters": {"spec": SPEC}}
+        _organization(
+            {"invocation_id": "freeze", "operator": "spec.freeze", "parameters": {"spec": SPEC}},
+            publishes="NamingSpec",
+            intent="freeze the convention",
         ),
-        _draft(
+        _organization(
             {
                 "invocation_id": "render",
                 "operator": "name.render",
                 "inputs": ["spec"],
                 "parameters": {"items": items},
-            }
+            },
+            publishes="ResolvedNames",
+            intent="render names",
         ),
-        _draft(
+        _organization(
             {
                 "invocation_id": "collide",
                 "operator": "name.collide",
@@ -149,17 +131,34 @@ def _script(gateway: FakeGateway, items: list[dict[str, object]]) -> FakeGateway
             {
                 "invocation_id": "assemble",
                 "operator": "plan.assemble",
-                "inputs": ["run_id", "workflow_id", "workflow_digest", "items", "collide"],
+                "inputs": [
+                    "run_id",
+                    "workflow_id",
+                    "workflow_digest",
+                    "items",
+                    "skipped",
+                    "collide",
+                ],
                 "bindings": {"scanned": "items", "planned": "resolutions"},
                 "parameters": {"decision_digest": "frozen-spec"},
             },
+            publishes="ChangePlan",
+            intent="assemble the plan",
         ),
-        _draft(
-            {"invocation_id": "verify", "operator": "fs.verify", "inputs": ["plan", "staging_root"]}
+        _organization(
+            {
+                "invocation_id": "verify",
+                "operator": "fs.verify",
+                "inputs": ["plan", "staging_root"],
+            },
+            publishes="ReviewEvidence",
+            intent="verify staging",
         ),
-        _draft({"invocation_id": "dirs", "operator": "fs.dirs", "inputs": ["staging_root"]}),
     )
-    gateway.queue(StageVerdict, *([ACCEPT] * 6))
+    # Three gates in this graph ask for judgment: readable, named and reviewed. The
+    # fake gateway consumes one response per call, so each needs its own.
+    judgment = {"satisfied": True, "rationale": "nothing more would change the decision"}
+    gateway.queue(Judgment, judgment, judgment, judgment)
     return gateway
 
 
@@ -178,16 +177,16 @@ def scripted(tmp_path: Path):
     recorder = RecordingExporter()
     tracer = Tracer("e2e", [recorder])
     audit = AuditStore(tmp_path / "audit.sqlite3")
-    stages = StageRegistry()
+    capabilities = CapabilityRegistry()
 
     runtime = Runtime(
         operators=operators,
-        stages=stages,
-        workflows=WorkflowRegistry(stages=stages, operators=operators),
+        capabilities=capabilities,
+        workflows=WorkflowRegistry(capabilities=capabilities, operators=operators),
         verifier=verifier,
         executor=Executor(operators, verifier, tracer=tracer),
-        planner=ModelPlanner(gateway=gateway, profile=PROFILE, prompts=prompts),
-        agents={"*": ModelDomainAgent(gateway=gateway, profile=PROFILE, prompts=prompts)},
+        planner=ModelGoalPlanner(gateway=gateway, profile=PROFILE, prompts=prompts),
+        agents={"*": ModelCapabilityAgent(gateway=gateway, profile=PROFILE, prompts=prompts)},
         audit=audit,
         workspace_root=tmp_path / "work",
         tracer=tracer,
@@ -209,22 +208,19 @@ class TestFullRun:
         assert result.outcome == "committed", result.detail
 
         output = Path(request.output_root)
-        produced = sorted(
+        assert sorted(
             path.relative_to(output).as_posix() for path in output.rglob("*") if path.is_file()
-        )
-        assert produced == [
+        ) == [
             "2024/q1/202402, Northwind Traders, INV-4471, PO-88120.pdf",
             "2024/q1/202403, Northwind Traders, INV-4472, PO-88121.pdf",
             "2024/q2/202405, Contoso Supply Co, INV-10233, PO-55004.pdf",
         ]
 
-    def test_every_stage_was_accepted_on_its_first_attempt(self, scripted) -> None:
+    def test_every_goal_was_satisfied(self, scripted) -> None:
         runtime, request, _, _, _ = scripted
         result = runtime.run(request)
-        assert len(result.stages) == 6
-        for outcome in result.stages:
-            assert outcome.verdict.decision is StageDecision.ACCEPT, outcome.stage.name
-            assert outcome.attempts == 1, outcome.stage.name
+        assert len(result.satisfied) == 6
+        assert all(attempt.gate.satisfied for attempt in result.attempts)
 
     def test_accounting_balances(self, scripted) -> None:
         runtime, request, _, _, _ = scripted
@@ -237,8 +233,9 @@ class TestFullRun:
         runtime, request, _, _, _ = scripted
         before = sorted(p.name for p in Path(request.input_root).rglob("*") if p.is_file())
         runtime.run(request)
-        after = sorted(p.name for p in Path(request.input_root).rglob("*") if p.is_file())
-        assert after == before == ["IMG_9931.pdf", "scan_0001.pdf", "scan_0002.pdf"]
+        assert sorted(
+            p.name for p in Path(request.input_root).rglob("*") if p.is_file()
+        ) == before == ["IMG_9931.pdf", "scan_0001.pdf", "scan_0002.pdf"]
 
     def test_no_content_reaches_telemetry(self, scripted) -> None:
         runtime, request, _, recorder, _ = scripted
@@ -247,20 +244,22 @@ class TestFullRun:
         for secret in ("Northwind", "Contoso", "INV-4471", "PO-88120"):
             assert secret not in shipped
 
-    def test_the_full_dag_is_auditable(self, scripted) -> None:
+    def test_every_goal_attempt_is_auditable(self, scripted) -> None:
         runtime, request, audit, _, _ = scripted
         result = runtime.run(request)
-        for stage in ("intake", "extract", "convention", "resolve", "compose_changes", "review"):
-            dag = audit.dag(result.run_id, stage)
-            assert dag["attempts"], stage
-            assert dag["attempts"][0]["nodes"], f"{stage} recorded no invocations"
+        for goal_id in result.satisfied:
+            dag = audit.dag(result.run_id, goal_id)
+            assert dag["attempts"], goal_id
 
-    def test_the_model_was_called_only_at_the_declared_points(self, scripted) -> None:
-        """Two planner calls per stage plus one per activated domain, and nothing else."""
+    def test_the_model_is_called_only_where_judgment_is_needed(self, scripted) -> None:
+        """One route, one goal choice, one capability choice, one organization per
+        capability, and one judgment per semantic gate — nothing else."""
         runtime, request, _, _, gateway = scripted
         runtime.run(request)
         kinds = [name for name, _ in gateway.calls]
         assert kinds.count("RouteDecision") == 1
-        assert kinds.count("StagePlan") == 6
-        assert kinds.count("StageVerdict") == 6
-        assert kinds.count("CompositionDraft") == 8
+        assert kinds.count("Organization") == 6
+        # Only one point in the graph has two open goals, and only some gates ask.
+        assert kinds.count("GoalChoice") == 1
+        assert kinds.count("CapabilityChoice") <= 1
+        assert kinds.count("Judgment") >= 1

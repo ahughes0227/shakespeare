@@ -79,6 +79,41 @@ class JournalPlanner:
             None,
         )
 
+    def select_goal(self, open_goals: Any, artifacts: list[dict[str, Any]]) -> str:
+        """Replay the recorded order.
+
+        The journal records which goal was pursued and when, so replay follows that
+        rather than re-deciding — a re-decision would be a different run.
+        """
+        pursued = [item["stage_name"] for item in self.recorded.attempts]
+        available = [goal.id for goal in open_goals]
+        for goal_id in pursued:
+            if goal_id in available:
+                return str(goal_id)
+        return str(available[0])
+
+    def select_capability(self, goal: Any, candidates: list[str]) -> str:
+        for item in self.recorded.attempts:
+            if item["stage_name"] == goal.id:
+                for capability_id in item["compositions"]:
+                    if capability_id in candidates:
+                        return str(capability_id)
+        return str(candidates[0])
+
+    def judge(
+        self,
+        *,
+        goal: Any,
+        rubric: str,
+        artifacts: list[dict[str, Any]],
+        evidence: dict[str, Any],
+    ) -> tuple[bool, str]:
+        """Replay the recorded verdict, so a semantic gate does not re-decide."""
+        for item in self.recorded.attempts:
+            if item["stage_name"] == goal.id and item["verdict"] is not None:
+                return bool(item["verdict"]["met"]), "replayed from the audit log"
+        return True, "replayed: no recorded verdict"
+
     def plan_stage(
         self, stage: StageSpec, request: RequestContract, stage_inputs: dict[str, Any]
     ) -> tuple[StagePlan, ModelUsage | None]:
@@ -147,13 +182,18 @@ class JournalAgent:
             )
         self._cursor[capability.id] = index + 1
         composition = Composition.model_validate(rounds[index])
+        final = index + 1 >= len(rounds)
         return (
             Organization(
                 invocations=composition.invocations,
                 intent=composition.rationale,
-                # The recorded run stopped where it stopped; the last round is the one
-                # that finished it.
-                sufficient=index + 1 >= len(rounds),
+                # The recorded run stopped where it stopped; the last round finished it.
+                sufficient=final,
+                # The journal records what ran, not what was published. A capability
+                # publishes what its package declares, so the final round republishes it.
+                # A capability declaring more than one kind would need the journal
+                # extended; none does today, and registration would have to allow it.
+                publishes=capability.produces[0] if final and capability.produces else None,
             ),
             None,
         )

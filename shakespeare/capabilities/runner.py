@@ -24,7 +24,7 @@ from typing import Any, Protocol
 from pydantic import Field as PydanticField
 
 from ..artifacts import Artifact, ArtifactStore, Quality
-from ..contracts import Composition, Contract, ErrorCode, Invocation
+from ..contracts import Composition, Contract, ErrorCode, Invocation, OperatorAsk
 from ..executor import Budget, Executor, InvocationResult
 from ..gateway import ModelUsage
 from ..verifier import Denial
@@ -49,6 +49,9 @@ class Organization(Contract):
     #: How complete that artifact is. PARTIAL is how a capability says "correct so far".
     quality: Quality = Quality.COMPLETE
     summary: dict[str, Any] = PydanticField(default_factory=dict)
+    #: A component this capability lacked. Evaluated after the round runs, so an admitted
+    #: component becomes usable on the next round rather than mid-organization.
+    ask: OperatorAsk | None = None
 
 
 class CapabilityAgent(Protocol):
@@ -113,6 +116,10 @@ class CapabilityRunner:
     artifacts: ArtifactStore
     config_root: str | None = None
     usage_sink: Any = None
+    #: Called with (ask, capability_id) when a capability requests a component.
+    ask_sink: Any = None
+    #: Components admitted during this run, per capability.
+    grants: dict[str, set[str]] = field(default_factory=dict)
     _compose: Any = field(default=None, repr=False)
 
     def run(
@@ -169,6 +176,7 @@ class CapabilityRunner:
                         budget=budget,
                         stage=goal_id,
                         attempt=number,
+                        granted=frozenset(self.grants.get(capability.id, set())),
                     )
                 except (Denial, CompositionError) as refusal:
                     denial = str(refusal)
@@ -179,6 +187,11 @@ class CapabilityRunner:
 
             rounds.append(Round(number=number, organization=organization, results=results,
                                 denial=denial))
+
+            if organization.ask is not None and self.ask_sink is not None:
+                admitted = self.ask_sink(organization.ask, capability.id)
+                if admitted:
+                    self.grants.setdefault(capability.id, set()).add(admitted)
 
             if organization.publishes and denial is None:
                 produced.append(

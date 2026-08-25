@@ -12,7 +12,7 @@ from pathlib import Path
 import pytest
 from shakespeare.graph import WorkflowGraph, resume, run_with_graph, sqlite_checkpointer
 
-from test_rename_files import build
+from harness import build
 
 
 @pytest.fixture
@@ -35,7 +35,7 @@ class TestApprovalGate:
             summary = payload["summary"]
             assert summary["entries"] == 3
             assert summary["changed"] == 3
-            assert summary["plan_digest"]
+            assert summary["plan_fingerprint"]
 
     def test_approving_commits(self, harness, tmp_path: Path) -> None:
         runtime, request, _, _ = harness
@@ -54,7 +54,8 @@ class TestApprovalGate:
             result = resume(graph, approved=False)
         assert result.outcome != "committed"
         assert not Path(request.output_root).exists()
-        assert not graph.staging.exists(), "declining must discard staging"
+        staging = runtime.workspace_root / result.run_id / "staging"
+        assert not staging.exists(), "declining must discard staging"
 
     def test_approval_can_be_waived_for_an_unattended_run(self, harness, tmp_path: Path) -> None:
         runtime, request, _, _ = harness
@@ -67,16 +68,18 @@ class TestApprovalGate:
 
 
 class TestDurability:
-    def test_state_is_checkpointed_at_every_stage_boundary(self, harness, tmp_path: Path) -> None:
+    def test_state_is_checkpointed_before_the_irreversible_step(
+        self, harness, tmp_path: Path
+    ) -> None:
         runtime, request, _, _ = harness
         path = tmp_path / "checkpoints.sqlite3"
         with sqlite_checkpointer(path) as saver:
-            _, graph, run_id = run_with_graph(runtime, request, checkpointer=saver)
-            config = {"configurable": {"thread_id": run_id}}
-            history = list(graph.compiled.get_state_history(config))
-        # One checkpoint per stage plus the interrupt: enough to resume at a boundary
-        # rather than restarting the whole run.
-        assert len(history) > len(graph.workflow.stages)
+            _, graph, thread = run_with_graph(runtime, request, checkpointer=saver)
+            history = list(
+                graph.compiled.get_state_history({"configurable": {"thread_id": thread}})
+            )
+        # Enough history to resume at the approval boundary rather than replan.
+        assert len(history) >= 2
 
     def test_checkpoint_is_local_and_protected(self, harness, tmp_path: Path) -> None:
         """The checkpointer holds working state, including content-derived values.
@@ -133,19 +136,16 @@ class TestParity:
 
 
 class TestGraphShape:
-    def test_every_stage_is_a_node(self, harness, tmp_path: Path) -> None:
+    def test_the_graph_models_what_is_static_about_a_run(
+        self, harness, tmp_path: Path
+    ) -> None:
+        """Which goal is pursued next is decided at run time.
+
+        A node per goal would misrepresent that, so the graph models the boundaries that
+        genuinely are fixed: do the work, pause for approval, commit or abandon.
+        """
         runtime, request, _, _ = harness
-        workflow = runtime.workflows.get("rename_files")
-        graph = WorkflowGraph(
-            runtime=runtime,
-            workflow=workflow,
-            request=request,
-            staging=tmp_path / "staging",
-            workspace=tmp_path / "work",
-        )
+        graph = WorkflowGraph(runtime=runtime, request=request)
         with sqlite_checkpointer(tmp_path / "cp.sqlite3") as saver:
             compiled = graph.build(saver)
-        nodes = set(compiled.get_graph().nodes)
-        for stage in workflow.stages:
-            assert stage.name in nodes
-        assert {"approve", "commit", "abandon"} <= nodes
+        assert {"pursue", "approve", "commit", "abandon"} <= set(compiled.get_graph().nodes)

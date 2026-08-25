@@ -1,144 +1,234 @@
-"""Shared runtime harness for the spine tests."""
+"""Shared harness for the goal-driven runtime.
+
+One place that knows how to assemble a runtime with scripted capabilities, so the tests
+below it are about behaviour rather than wiring.
+"""
 
 from __future__ import annotations
 
 from pathlib import Path
 from typing import Any
 
+from shakespeare.agent import FakeCapabilityAgent
+from shakespeare.artifacts import Quality
 from shakespeare.audit import AuditStore
-from shakespeare.contracts import (
-    Composition,
-    DomainGoal,
-    DomainSpec,
-    Invocation,
-    SemanticCard,
-    StageSpec,
-    WorkflowSpec,
-)
+from shakespeare.capabilities import CapabilityRegistry
+from shakespeare.capabilities.runner import Organization
+from shakespeare.contracts import Invocation, RequestContract, RouteDecision, SemanticCard
 from shakespeare.executor import Executor
 from shakespeare.operators.builtin import build_registry
-from shakespeare.planner import FakePlanner
+from shakespeare.planner import ScriptedGoalPlanner
 from shakespeare.runtime import Runtime
-from shakespeare.stages import StageRegistry
 from shakespeare.telemetry import RecordingExporter, Tracer
 from shakespeare.verifier import Verifier
 from shakespeare.workflows import WorkflowRegistry
+
+INVOICES: dict[str, tuple[str, str, str, str]] = {
+    "2024/q1/scan001.pdf": ("ACME Corporation", "INV-99812", "PO-44117", "2024-01-15"),
+    "2024/q1/scan002.pdf": ("ACME Corporation", "INV-99813", "PO-44118", "2024-01-22"),
+    "2024/q2/scan003.pdf": ("Globex Ltd", "INV-20001", "PO-77310", "2024-04-02"),
+}
+
+SPEC: dict[str, Any] = {
+    "template": "{invoice_date}, {vendor}, {invoice_number}, {po_number}",
+    "fields": [
+        {"name": "invoice_date", "kind": "date", "format": "%Y%m"},
+        {"name": "vendor"},
+        {"name": "invoice_number"},
+        {"name": "po_number", "required": False},
+    ],
+    "policy": {"separator": ", "},
+    "collision_policy": "suffix_n",
+}
 
 
 def card(purpose: str) -> SemanticCard:
     filler = "declared for the test harness"
     return SemanticCard(
-        purpose=purpose,
-        lifecycle=filler,
-        contracts=filler,
-        allowed_configuration=filler,
-        side_effects=filler,
-        risks=filler,
-        failure_modes=filler,
-        resource_limits=filler,
-        examples=filler,
-        provenance=filler,
+        purpose=purpose, lifecycle=filler, contracts=filler, allowed_configuration=filler,
+        side_effects=filler, risks=filler, failure_modes=filler, resource_limits=filler,
+        examples=filler, provenance=filler,
     )
 
 
-def goal(domain_id: str, text: str = "do the work") -> DomainGoal:
-    return DomainGoal(domain_id=domain_id, goal=text, success_criterion="obligations pass")
+def seed_invoices(root: Path, contents: dict[str, tuple[str, str, str, str]] | None = None) -> Path:
+    for relpath in contents or INVOICES:
+        path = root / relpath
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(f"invoice body for {relpath}".encode())
+    return root
 
 
-def composition(domain_id: str, *invocations: Invocation) -> Composition:
-    return Composition(domain_id=domain_id, invocations=invocations)
+def values_for(
+    root: Path, contents: dict[str, tuple[str, str, str, str]] | None = None
+) -> list[dict[str, Any]]:
+    """Per-item field values, computed against the bytes the run will actually see.
+
+    Item ids are content-addressed, so these must be built after the tree is seeded.
+    """
+    from shakespeare.operators.filesystem import scan
+
+    contents = contents or INVOICES
+    resolved: list[dict[str, Any]] = []
+    for item in scan(root)[0]:
+        vendor, number, po, date = contents[item.relpath]
+        resolved.append(
+            {
+                "item_id": item.item_id,
+                "directory": str(Path(item.relpath).parent),
+                "extension": Path(item.relpath).suffix,
+                "values": {
+                    "vendor": vendor,
+                    "invoice_number": number,
+                    "po_number": po,
+                    "invoice_date": date,
+                },
+            }
+        )
+    return resolved
 
 
-def build_runtime(
+def org(
+    *invocations: Invocation,
+    publishes: str | None = None,
+    quality: Quality = Quality.COMPLETE,
+    summary: dict[str, Any] | None = None,
+    intent: str = "",
+    sufficient: bool = True,
+) -> Organization:
+    return Organization(
+        invocations=invocations,
+        intent=intent,
+        sufficient=sufficient,
+        publishes=publishes,
+        quality=quality,
+        summary=summary or {},
+    )
+
+
+def rename_agent(items: list[dict[str, Any]], spec: dict[str, Any] | None = None):
+    """Scripted capabilities that answer every goal in the rename graph."""
+    agent = FakeCapabilityAgent()
+    agent.queue(
+        "survey",
+        org(
+            Invocation(invocation_id="scan", operator="fs.scan", inputs=("root",)),
+            publishes="FileInventory",
+            intent="walk the tree",
+        ),
+    )
+    agent.queue(
+        "acquire",
+        org(
+            Invocation(
+                invocation_id="extract",
+                operator="doc.extract",
+                selections={"extract": "auto_chain"},
+                inputs=("root", "items"),
+            ),
+            publishes="ExtractedContent",
+            intent="read every file",
+        ),
+    )
+    agent.queue(
+        "convene",
+        org(
+            Invocation(
+                invocation_id="freeze",
+                operator="spec.freeze",
+                parameters={"spec": spec or SPEC},
+            ),
+            publishes="NamingSpec",
+            intent="freeze the convention",
+        ),
+    )
+    agent.queue(
+        "resolve",
+        org(
+            Invocation(
+                invocation_id="render",
+                operator="name.render",
+                inputs=("spec",),
+                parameters={"items": items},
+            ),
+            publishes="ResolvedNames",
+            intent="render names",
+        ),
+    )
+    agent.queue(
+        "compose",
+        org(
+            Invocation(
+                invocation_id="collide",
+                operator="name.collide",
+                selections={"collision": "suffix_n"},
+                inputs=("candidates", "unrendered"),
+            ),
+            Invocation(
+                invocation_id="assemble",
+                operator="plan.assemble",
+                inputs=(
+                    "run_id",
+                    "workflow_id",
+                    "workflow_digest",
+                    "items",
+                    "skipped",
+                    "collide",
+                ),
+                bindings={"scanned": "items", "planned": "resolutions"},
+                parameters={"decision_digest": "spec"},
+            ),
+            publishes="ChangePlan",
+            intent="assemble the plan",
+        ),
+    )
+    agent.queue(
+        "review",
+        org(
+            Invocation(
+                invocation_id="verify", operator="fs.verify", inputs=("plan", "staging_root")
+            ),
+            publishes="ReviewEvidence",
+            intent="verify staging",
+        ),
+    )
+    return agent
+
+
+def build(
     tmp_path: Path,
     *,
-    stages: list[tuple[StageSpec, SemanticCard]],
-    workflow: WorkflowSpec,
-    planner: FakePlanner,
-    agents: dict[str, Any],
-    exporter: RecordingExporter | None = None,
-) -> tuple[Runtime, AuditStore, RecordingExporter]:
+    contents: dict[str, tuple[str, str, str, str]] | None = None,
+    planner: Any | None = None,
+    agents: dict[str, Any] | None = None,
+    spec: dict[str, Any] | None = None,
+) -> tuple[Runtime, RequestContract, AuditStore, RecordingExporter]:
+    source = seed_invoices(tmp_path / "in", contents)
     operators = build_registry()
-    stage_registry = StageRegistry(root=tmp_path / "_stages_empty")
-    for spec, semantic in stages:
-        stage_registry.register(spec, semantic)
-
-    workflow_registry = WorkflowRegistry(
-        stages=stage_registry, operators=operators, root=tmp_path / "_workflows_empty"
-    )
-    workflow_registry.register(workflow, card(f"{workflow.id} test workflow"))
-
-    recorder = exporter or RecordingExporter()
-    tracer = Tracer("harness", [recorder])
     verifier = Verifier(operators)
+    capabilities = CapabilityRegistry()
+    recorder = RecordingExporter()
+    tracer = Tracer("harness", [recorder])
     audit = AuditStore(tmp_path / "audit.sqlite3")
 
     runtime = Runtime(
         operators=operators,
-        stages=stage_registry,
-        workflows=workflow_registry,
+        capabilities=capabilities,
+        workflows=WorkflowRegistry(capabilities=capabilities, operators=operators),
         verifier=verifier,
         executor=Executor(operators, verifier, tracer=tracer),
-        planner=planner,
-        agents=agents,
+        planner=planner or ScriptedGoalPlanner(route=RouteDecision(workflow_id="rename_files")),
+        agents=agents
+        if agents is not None
+        else {"*": rename_agent(values_for(source, contents), spec)},
         audit=audit,
         workspace_root=tmp_path / "work",
         tracer=tracer,
     )
-    return runtime, audit, recorder
-
-
-def seed_tree(root: Path) -> Path:
-    """A nested tree with the awkward cases: subfolders, an unreadable type, a collision."""
-    (root / "2024" / "q1").mkdir(parents=True)
-    (root / "2024" / "q1" / "scan001.pdf").write_bytes(b"invoice one")
-    (root / "2024" / "scan002.pdf").write_bytes(b"invoice two")
-    (root / "notes.txt").write_text("a loose note")
-    return root
-
-
-def noop_stages() -> list[tuple[StageSpec, SemanticCard]]:
-    """A workflow that shares nothing with rename_files except the spine itself."""
-    inventory = StageSpec(
-        name="inventory",
-        version="1.0.0",
-        purpose="Inventory the input tree.",
-        goal="Every file is inventoried.",
-        input_contract="RequestContract",
-        output_contract="FileInventory",
-        domains=(
-            DomainSpec(
-                id="survey",
-                scope="Walk the input root.",
-                skippable=False,
-                catalog=frozenset({"fs.scan"}),
-            ),
-        ),
+    request = RequestContract(
+        request_id="req-1",
+        prompt="rename these invoices to YYYYMM, vendor, invoice number, PO number",
+        input_root=str(source),
+        output_root=str(tmp_path / "out"),
     )
-    compose_changes = StageSpec(
-        name="compose_changes",
-        version="1.0.0",
-        purpose="Plan a pure passthrough copy.",
-        goal="Every item has a plan entry.",
-        input_contract="FileInventory",
-        output_contract="ChangePlan",
-        domains=(
-            DomainSpec(
-                id="passthrough",
-                scope="Plan each file unchanged.",
-                skippable=False,
-                catalog=frozenset({"plan.assemble"}),
-            ),
-        ),
-        obligations=("balanced", "resolved_or_quarantined"),
-    )
-    return [(inventory, card("inventory")), (compose_changes, card("compose"))]
-
-
-def noop_workflow() -> WorkflowSpec:
-    return WorkflowSpec(
-        id="noop_passthrough",
-        version="1.0.0",
-        spine=("inventory@1.0.0", "compose_changes@1.0.0"),
-        commit_after="compose_changes",
-    )
+    return runtime, request, audit, recorder

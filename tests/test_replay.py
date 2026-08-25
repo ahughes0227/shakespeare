@@ -11,39 +11,30 @@ from pathlib import Path
 
 import pytest
 from shakespeare.audit import AuditStore
+from shakespeare.capabilities import CapabilityRegistry
 from shakespeare.contracts import ChangeAction
 from shakespeare.executor import Executor
 from shakespeare.operators import mutation
 from shakespeare.operators.builtin import build_registry
 from shakespeare.replay import ReplayError, assert_same_workflow, journal_components
 from shakespeare.runtime import Runtime
-from shakespeare.stages import StageRegistry
 from shakespeare.telemetry import RecordingExporter, Tracer
 from shakespeare.verifier import Verifier
 from shakespeare.workflows import WorkflowRegistry
 
-from test_rename_files import build
-
-
-def _stage_of(stages: StageRegistry) -> dict[str, str]:
-    return {
-        domain.id: stage.name
-        for ref in stages.refs()
-        for stage in [stages.get(ref)]
-        for domain in stage.domains
-    }
+from harness import build
 
 
 def _replay_runtime(audit: AuditStore, run_id: str, tmp_path: Path) -> tuple[Runtime, object]:
     operators = build_registry()
     verifier = Verifier(operators)
-    stages = StageRegistry()
-    planner, agents, _, _ = journal_components(audit, run_id, stage_of=_stage_of(stages))
+    capabilities = CapabilityRegistry()
+    planner, agents, _, _ = journal_components(audit, run_id)
     tracer = Tracer("replay", [RecordingExporter()])
     runtime = Runtime(
         operators=operators,
-        stages=stages,
-        workflows=WorkflowRegistry(stages=stages, operators=operators),
+        capabilities=capabilities,
+        workflows=WorkflowRegistry(capabilities=capabilities, operators=operators),
         verifier=verifier,
         executor=Executor(operators, verifier, tracer=tracer),
         planner=planner,
