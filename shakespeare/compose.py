@@ -56,8 +56,20 @@ _ALWAYS_FORBIDDEN: tuple[str, ...] = ("_target_", "${", "..")
 _SCALAR_FORBIDDEN: tuple[str, ...] = ("~", "+", "/", "\\")
 
 
+#: Rejected as a key at any depth: these are the forms that could be interpreted as
+#: instructions rather than data if a mapping ever reached OmegaConf.
+_DIRECTIVE_KEYS: tuple[str, ...] = ("_target_", "_partial_", "_args_", "_convert_", "_recursive_")
+
+
 def _reject_unsafe(key: str, value: Any, *, depth: int = 0) -> None:
-    if key.startswith("_") or not _SAFE_KEY.match(key):
+    if depth == 0:
+        # A top-level key is an argument name, so it must look like one.
+        if key.startswith("_") or not _SAFE_KEY.match(key):
+            raise CompositionError(f"unsafe parameter key: {key!r}")
+    elif key in _DIRECTIVE_KEYS:
+        # Deeper keys are data. An alias map is keyed by vendor names, a values mapping by
+        # whatever the document says — arbitrary strings are correct there. Only Hydra's
+        # own directive keys are refused.
         raise CompositionError(f"unsafe parameter key: {key!r}")
     if isinstance(value, str):
         for token in _ALWAYS_FORBIDDEN:

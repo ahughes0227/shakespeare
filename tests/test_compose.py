@@ -75,3 +75,46 @@ class TestInjectionGuard:
 
     def test_accepts_ordinary_bounded_parameters(self) -> None:
         validate_parameters({"page_limit": 5, "char_limit": 1000, "strict": True, "floor": 0.9})
+
+
+class TestDataVersusConfigKeys:
+    """The guard's key rule is about *argument names*, not about data.
+
+    Applying it at every depth rejected an alias map keyed by vendor names — legitimate
+    data, refused as an unsafe key. The same conflation had already cost a path separator
+    fix; this pins the distinction so it is not made a third time.
+    """
+
+    def test_a_top_level_key_must_look_like_an_argument_name(self) -> None:
+        for key in ("Not An Arg", "_hidden", "9lives", "with-dash"):
+            with pytest.raises(CompositionError, match="unsafe parameter key"):
+                validate_parameters({key: "value"})
+
+    def test_nested_data_keys_may_be_arbitrary_strings(self) -> None:
+        validate_parameters(
+            {
+                "spec": {
+                    "policy": {
+                        "aliases": {
+                            "Northwind Traders Ltd.": "Northwind",
+                            "ACME Corp & Sons": "ACME",
+                            "société générale": "SocGen",
+                        }
+                    }
+                }
+            }
+        )
+
+    def test_nested_values_keyed_by_document_content_are_allowed(self) -> None:
+        validate_parameters({"items": [{"values": {"Invoice No.": "INV-1", "P.O. #": "PO-1"}}]})
+
+    @pytest.mark.parametrize(
+        "directive", ["_target_", "_partial_", "_args_", "_convert_", "_recursive_"]
+    )
+    def test_hydra_directive_keys_are_refused_at_any_depth(self, directive: str) -> None:
+        with pytest.raises(CompositionError, match="unsafe parameter key"):
+            validate_parameters({"spec": {"policy": {directive: "os.system"}}})
+
+    def test_interpolation_is_still_refused_in_nested_data(self) -> None:
+        with pytest.raises(CompositionError):
+            validate_parameters({"spec": {"aliases": {"vendor": "${env:HOME}"}}})

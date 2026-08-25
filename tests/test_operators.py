@@ -232,3 +232,50 @@ class TestObligations:
     def test_unknown_check_is_refused(self) -> None:
         with pytest.raises(AssemblyError, match="unknown obligation check"):
             run_check("o", "rm -rf /", {})
+
+
+class TestDeclaredOutputs:
+    """Declared outputs are what an agent binds from, so a wrong one is a broken wire.
+
+    A live model bound `planned` from `collide.planned` because nothing told it the
+    operator produces `resolutions`.
+    """
+
+    def test_every_composable_operator_declares_its_outputs(self) -> None:
+        from shakespeare.operators.builtin import RUNTIME_ONLY
+        from shakespeare.operators.contracts import OUTPUT_KEYS
+
+        composable = {name for name in BUILTIN if name not in RUNTIME_ONLY}
+        assert composable == set(OUTPUT_KEYS)
+
+    def test_declared_outputs_match_what_the_runner_returns(self, tmp_path: pathlib.Path) -> None:
+        from shakespeare.operators.contracts import OUTPUT_KEYS
+        from shakespeare.runners import pure_transform, readonly_scan
+
+        source = tmp_path / "in"
+        source.mkdir()
+        (source / "a.pdf").write_bytes(b"x")
+
+        produced = {
+            "fs.scan": readonly_scan({"operation": "walk", "root": str(source)}, tmp_path),
+            "fs.dirs": readonly_scan(
+                {"operation": "directories", "root": str(source)}, tmp_path
+            ),
+            "text.normalize": pure_transform(
+                {"operation": "normalize", "values": {"v": "x"}}, tmp_path
+            ),
+            "spec.freeze": pure_transform(
+                {
+                    "operation": "freeze_spec",
+                    "spec": {"template": "{vendor}", "fields": [{"name": "vendor"}]},
+                },
+                tmp_path,
+            ),
+            "name.collide": pure_transform(
+                {"operation": "collision_resolve", "candidates": []}, tmp_path
+            ),
+        }
+        for name, output in produced.items():
+            assert set(OUTPUT_KEYS[name]) == set(output), (
+                f"{name} declares {OUTPUT_KEYS[name]} but returns {sorted(output)}"
+            )

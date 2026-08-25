@@ -110,6 +110,23 @@ INPUT_MODELS: dict[str, type[OperatorInput]] = {
 }
 
 
+#: What each operator puts into the argument mapping for later invocations. Declaring
+#: inputs without outputs left an agent able to call an operator but unable to wire one
+#: into the next — it had to guess the key to bind from, and guessed wrong.
+OUTPUT_KEYS: dict[str, list[str]] = {
+    "fs.scan": ["items", "skipped", "count"],
+    "fs.dirs": ["directories"],
+    "fs.verify": ["ok", "missing", "mismatched", "staged_files", "planned_entries"],
+    "doc.extract": ["extractions", "usable", "unavailable"],
+    "text.normalize": ["values"],
+    "spec.freeze": ["spec", "digest"],
+    "name.render": ["results", "candidates", "unrendered"],
+    "name.collide": ["resolutions"],
+    "plan.assemble": ["plan", "entries", "scanned"],
+    "check.assert": ["obligation_id", "passed", "detail"],
+}
+
+
 def argument_summary(name: str) -> dict[str, Any]:
     """What a subagent needs to call an operator correctly.
 
@@ -126,4 +143,10 @@ def argument_summary(name: str) -> dict[str, Any]:
         if info.description:
             entry["note"] = info.description
         (required if info.is_required() else optional).append(entry)
-    return {"required": required, "optional": optional}
+    return {
+        "required": required,
+        "optional": optional,
+        # Naming an earlier invocation in `inputs` splats these keys into the arguments;
+        # `bindings` renames one onto a different argument.
+        "produces": OUTPUT_KEYS.get(name, []),
+    }
