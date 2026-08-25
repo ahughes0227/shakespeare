@@ -279,3 +279,36 @@ class TestDeclaredOutputs:
             assert set(OUTPUT_KEYS[name]) == set(output), (
                 f"{name} declares {OUTPUT_KEYS[name]} but returns {sorted(output)}"
             )
+
+
+class TestUnreadableAccounting:
+    """A file the scanner could not read must still end in a visible terminal state.
+
+    Live, `locked.pdf` was in the source tree and appeared nowhere in the plan or the
+    output — silently absent rather than reported.
+    """
+
+    def _plan(self, skipped: tuple[dict[str, str], ...]):
+        return assemble_plan(
+            run_id="r",
+            workflow_id="w",
+            workflow_digest="wd",
+            decision_digest="dd",
+            scanned=(ScannedItem(item_id="1", relpath="a.pdf", sha256="d" * 64),),
+            planned=(PlannedName(item_id="1", directory="", name="A.pdf"),),
+            skipped=skipped,
+        )
+
+    def test_a_skipped_file_appears_as_unresolved(self) -> None:
+        plan = self._plan(({"relpath": "locked.pdf", "reason": "unreadable:PermissionError"},))
+        entry = next(e for e in plan.entries if e.source_ref == "locked.pdf")
+        assert entry.action is ChangeAction.UNRESOLVED
+        assert entry.reason == "unreadable:PermissionError"
+
+    def test_the_balance_counts_scanned_and_skipped(self) -> None:
+        plan = self._plan(({"relpath": "locked.pdf", "reason": "unreadable"},))
+        assert plan.balanced(2)
+        assert len(plan.entries) == 2
+
+    def test_no_skipped_files_changes_nothing(self) -> None:
+        assert len(self._plan(()).entries) == 1

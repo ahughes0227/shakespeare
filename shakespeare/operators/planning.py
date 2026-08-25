@@ -59,6 +59,7 @@ def assemble_plan(
     decision_digest: str,
     scanned: tuple[ScannedItem, ...],
     planned: tuple[PlannedName, ...] = (),
+    skipped: tuple[dict[str, str], ...] = (),
     operator_versions: dict[str, str] | None = None,
     default_action: ChangeAction = ChangeAction.UNRESOLVED,
 ) -> ChangePlan:
@@ -113,6 +114,19 @@ def assemble_plan(
             )
         )
 
+    for absent in sorted(skipped, key=lambda value: value.get("relpath", "")):
+        # Unreadable inputs must appear in the plan or a user renaming a thousand files
+        # gets nine hundred and ninety-seven outputs and no sign the rest existed.
+        entries.append(
+            RenameEntry(
+                item_id=absent.get("relpath", ""),
+                source_ref=absent.get("relpath", ""),
+                action=ChangeAction.UNRESOLVED,
+                reason=absent.get("reason", "skipped"),
+                digests={"unreadable": "true"},
+            )
+        )
+
     plan = ChangePlan(
         run_id=run_id,
         workflow_id=workflow_id,
@@ -121,9 +135,11 @@ def assemble_plan(
         operator_versions=operator_versions or {},
         entries=tuple(entries),
     )
-    if not plan.balanced(len(scanned)):
+    total = len(scanned) + len(skipped)
+    if not plan.balanced(total):
         raise AssemblyError(
-            f"unbalanced plan: {len(plan.entries)} entries for {len(scanned)} scanned items"
+            f"unbalanced plan: {len(plan.entries)} entries for {len(scanned)} scanned "
+            f"and {len(skipped)} skipped items"
         )
     return plan
 

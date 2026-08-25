@@ -269,6 +269,7 @@ def _plan_assemble(arguments: dict[str, Any], workspace: Path) -> dict[str, Any]
         planned=tuple(
             planning.PlannedName.model_validate(i) for i in arguments.get("planned") or ()
         ),
+        skipped=tuple(arguments.get("skipped") or ()),
         operator_versions=arguments.get("operator_versions"),
         default_action=ChangeAction(arguments.get("default_action", "unresolved")),
     )
@@ -278,7 +279,7 @@ def _plan_assemble(arguments: dict[str, Any], workspace: Path) -> dict[str, Any]
         # Published as evidence so `balanced` and `resolved_or_quarantined` can be checked
         # without the runtime knowing anything about plans.
         "entries": payload["entries"],
-        "scanned": len(arguments["scanned"]),
+        "scanned": len(arguments["scanned"]) + len(arguments.get("skipped") or ()),
     }
 
 

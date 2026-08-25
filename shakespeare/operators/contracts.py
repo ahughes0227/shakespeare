@@ -82,6 +82,10 @@ class PlanAssembleInput(OperatorInput):
     workflow_digest: str
     decision_digest: str
     scanned: list[dict[str, Any]] = Field(description="The inventory. Bind from fs.scan.")
+    skipped: list[dict[str, Any]] | None = Field(
+        default=None,
+        description="Unreadable paths from fs.scan. Bind them so they appear in the plan.",
+    )
     planned: list[dict[str, Any]] | None = Field(
         default=None,
         description="Resolved names. Must be bound from name.collide, never written by hand.",

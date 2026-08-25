@@ -189,3 +189,41 @@ class TestCommit:
 
         with pytest.raises(MutationError, match="no reversal is defined"):
             reverse(ReversalRecord(mutation_id="m", operation="invented"))
+
+
+class TestUnreadableEntries:
+    """An unreadable file is reported in the plan but cannot be copied anywhere."""
+
+    def _plan(self) -> ChangePlan:
+        return ChangePlan(
+            run_id="r",
+            workflow_id="w",
+            workflow_digest="wd",
+            decision_digest="dd",
+            entries=(
+                RenameEntry(
+                    item_id="locked.pdf",
+                    source_ref="locked.pdf",
+                    action=ChangeAction.UNRESOLVED,
+                    reason="unreadable:PermissionError",
+                    digests={"unreadable": "true"},
+                ),
+            ),
+        )
+
+    def test_staging_does_not_try_to_copy_it(self, tmp_path: pathlib.Path) -> None:
+        source = tmp_path / "in"
+        source.mkdir()
+        staging = tmp_path / "staging"
+        reversals = stage_plan(plan=self._plan(), input_root=source, staging_root=staging)
+        assert reversals == ()
+
+    def test_verification_does_not_expect_it_on_disk(self, tmp_path: pathlib.Path) -> None:
+        source = tmp_path / "in"
+        source.mkdir()
+        staging = tmp_path / "staging"
+        plan = self._plan()
+        stage_plan(plan=plan, input_root=source, staging_root=staging)
+        report = verify_tree(plan=plan, staging_root=staging)
+        assert report["ok"] is True
+        assert report["unreadable"] == 1

@@ -53,6 +53,10 @@ def stage_plan(
 
     reversals: list[ReversalRecord] = []
     for entry in plan.entries:
+        if entry.digests.get("unreadable") == "true":
+            # The scanner could not read it, so there is nothing to copy. It stays in the
+            # plan and in the review as an exception a person has to look at.
+            continue
         source = _guard(input_root, entry.source_ref)
         if not source.is_file():
             raise MutationError(f"plan references a missing source: {entry.source_ref}")
@@ -141,7 +145,10 @@ def verify_tree(
     missing: list[str] = []
     mismatched: list[str] = []
 
-    for entry in plan.entries:
+    expected_entries = [
+        entry for entry in plan.entries if entry.digests.get("unreadable") != "true"
+    ]
+    for entry in expected_entries:
         if entry.action is ChangeAction.UNRESOLVED:
             expected = staging_root / quarantine_dirname / entry.source_ref
         else:
@@ -156,9 +163,10 @@ def verify_tree(
 
     staged = sum(1 for path in staging_root.rglob("*") if path.is_file())
     return {
-        "ok": not missing and not mismatched and staged == len(plan.entries),
+        "ok": not missing and not mismatched and staged == len(expected_entries),
         "missing": missing,
         "mismatched": mismatched,
         "staged_files": staged,
-        "planned_entries": len(plan.entries),
+        "planned_entries": len(expected_entries),
+        "unreadable": len(plan.entries) - len(expected_entries),
     }
