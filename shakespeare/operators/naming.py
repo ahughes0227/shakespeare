@@ -128,14 +128,28 @@ def tidy_separators(stem: str, separator: str) -> str:
 
 def _format_value(value: Any, decl: FieldDecl) -> str:
     if decl.kind is FieldKind.DATE:
+        pattern = decl.format or "%Y%m"
         moment = value
         if isinstance(moment, str):
-            moment = datetime.fromisoformat(moment)
+            try:
+                moment = datetime.fromisoformat(moment)
+            except ValueError:
+                # A value already in the field's own format is not an error. Asking for
+                # "%Y%m" and then rejecting "202402" would be a contract arguing with
+                # itself, and a live model supplied exactly that.
+                try:
+                    datetime.strptime(moment, pattern)
+                except ValueError:
+                    raise ValueError(
+                        f"{decl.name}: expected an ISO date (YYYY-MM-DD) or a value "
+                        f"already matching {pattern!r}, got {moment!r}"
+                    ) from None
+                return moment
         if isinstance(moment, datetime):
             moment = moment.date()
         if not isinstance(moment, date):
             raise ValueError(f"{decl.name}: expected a date, got {type(value).__name__}")
-        return moment.strftime(decl.format or "%Y%m")
+        return moment.strftime(pattern)
     if decl.kind in (FieldKind.INTEGER, FieldKind.SEQUENCE):
         number = int(value)
         return format(number, decl.format or "d")

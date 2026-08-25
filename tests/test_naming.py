@@ -298,3 +298,40 @@ class TestConfidenceFloor:
             floor=0.99,
         )
         assert result.rendered == "007.pdf"
+
+
+class TestDateTolerance:
+    """A value already in the field's own format is not an error.
+
+    A live model asked for "%Y%m" supplied "202402", and the renderer rejected it —
+    a contract arguing with itself, and every invoice was quarantined for it.
+    """
+
+    def _render(self, value: str, fmt: str = "%Y%m"):
+        return render(
+            item_id="1",
+            template="{invoice_date}",
+            fields=(FieldDecl(name="invoice_date", kind=FieldKind.DATE, format=fmt),),
+            values={"invoice_date": value},
+            policy=NamePolicy(),
+            extension=".pdf",
+        )
+
+    def test_an_iso_date_is_formatted(self) -> None:
+        assert self._render("2024-02-11").rendered == "202402.pdf"
+
+    def test_a_value_already_in_the_target_format_passes_through(self) -> None:
+        assert self._render("202402").rendered == "202402.pdf"
+
+    def test_an_iso_datetime_is_accepted(self) -> None:
+        assert self._render("2024-02-11T09:15:00").rendered == "202402.pdf"
+
+    def test_another_format_is_honoured_both_ways(self) -> None:
+        assert self._render("2024-02-11", "%Y-%m-%d").rendered == "2024-02-11.pdf"
+        assert self._render("11/02/2024", "%d/%m/%Y").rendered == "11-02-2024.pdf"
+
+    def test_genuine_nonsense_is_still_refused(self) -> None:
+        result = self._render("not a date at all")
+        assert result.rendered is None
+        assert result.reason is not None
+        assert "expected an ISO date" in result.reason
