@@ -72,6 +72,9 @@ class RunResult:
     stages: tuple[StageOutcome, ...] = ()
     error_code: ErrorCode | None = None
     detail: str = ""
+    #: Where a planned-but-uncommitted run would commit to, so the approved plan can be
+    #: committed later without re-deriving it.
+    planned_output_root: str | None = None
 
     @property
     def committed(self) -> bool:
@@ -200,13 +203,16 @@ class Runtime:
         if plan is not None:
             self.audit.record_plan(run_id=run_id, plan=plan)
         if not commit:
-            self.audit.record_run_outcome(run_id=run_id, outcome="planned")
+            # No outcome is recorded: `run_outcomes` says how a run *ended*, and a planned
+            # run has not. It ends when someone commits it or abandons it, and recording
+            # "planned" as terminal would make the later commit a duplicate.
             return RunResult(
                 run_id=run_id,
                 workflow_id=workflow.spec.id,
                 outcome="planned",
                 plan=plan,
                 stages=tuple(outcomes),
+                planned_output_root=request.output_root,
             )
 
         return self._commit(
@@ -216,6 +222,29 @@ class Runtime:
             staging=staging,
             output_root=Path(request.output_root),
             outcomes=tuple(outcomes),
+        )
+
+    def commit_planned(self, result: RunResult) -> RunResult:
+        """Commit the plan a previous planning run produced.
+
+        Replanning after approval would re-invoke the model and could commit a different
+        plan than the one shown, which is exactly what two-phase commit exists to prevent.
+        The staging tree was already materialised during planning, so committing is
+        verification plus one atomic move — and no model call at all.
+        """
+        if result.plan is None:
+            raise RuntimeError_(
+                "there is no plan to commit", ErrorCode.COMMIT_VERIFICATION_FAILED
+            )
+        workflow = self.workflows.get(result.workflow_id)
+        workspace = self.workspace_root / result.run_id
+        return self._commit(
+            run_id=result.run_id,
+            workflow=workflow,
+            plan=result.plan,
+            staging=workspace / "staging",
+            output_root=Path(result.planned_output_root or ""),
+            outcomes=result.stages,
         )
 
     # -- the attempt loop ---------------------------------------------------------------

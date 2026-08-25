@@ -230,3 +230,58 @@ class TestIdempotency:
         )
         assert audit.find_commit(plan_digest="0" * 64, output_root=request.output_root) is None
         audit.close()
+
+
+class TestPreviewCommitsWhatItShowed:
+    """`run` previews a plan and then commits it — that plan, not another one.
+
+    It used to re-run the whole workflow after approval, so the model was re-invoked and
+    the committed plan could differ from the one the user approved. It also doubled the
+    cost of every run.
+    """
+
+    def test_committing_a_previewed_plan_makes_no_further_model_call(
+        self, tmp_path: Path
+    ) -> None:
+        runtime, request, audit, _ = build(tmp_path)
+        planned = runtime.run(request, commit=False)
+        assert planned.plan is not None
+
+        before = {domain: agent.call_count for domain, agent in runtime.agents.items()}
+        committed = runtime.commit_planned(planned)
+        after = {domain: agent.call_count for domain, agent in runtime.agents.items()}
+
+        assert committed.outcome == "committed", committed.detail
+        assert after == before, "committing must not re-invoke a single agent"
+        audit.close()
+
+    def test_the_committed_tree_matches_the_previewed_plan_exactly(
+        self, tmp_path: Path
+    ) -> None:
+        runtime, request, audit, _ = build(tmp_path)
+        planned = runtime.run(request, commit=False)
+        assert planned.plan is not None
+        expected = sorted(
+            e.target_relpath
+            for e in planned.plan.entries
+            if getattr(e, "target_relpath", None)
+        )
+
+        runtime.commit_planned(planned)
+        output = Path(request.output_root)
+        produced = sorted(
+            path.relative_to(output).as_posix()
+            for path in output.rglob("*")
+            if path.is_file() and not path.as_posix().count("_unresolved")
+        )
+        assert produced == expected
+        audit.close()
+
+    def test_committing_without_a_plan_is_refused(self, tmp_path: Path) -> None:
+        from shakespeare.runtime import RunResult
+
+        runtime, _, audit, _ = build(tmp_path)
+        with pytest.raises(Exception, match="no plan to commit"):
+            runtime.commit_planned(RunResult(run_id="x", workflow_id="rename_files",
+                                             outcome="planned"))
+        audit.close()

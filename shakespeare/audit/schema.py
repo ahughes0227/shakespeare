@@ -45,6 +45,8 @@ runs = _table(
     Column("input_root_digest", String, nullable=False),
 )
 
+#: How a run *ended*. A planned-but-uncommitted run has no row here, which is the
+#: difference between "not finished" and "finished without committing".
 run_outcomes = _table(
     "run_outcomes",
     Column("run_id", String, ForeignKey("runs.run_id"), primary_key=True),

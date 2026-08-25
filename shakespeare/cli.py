@@ -147,7 +147,8 @@ def run(
         console.print("[dim]Nothing was written.[/dim]")
         raise typer.Exit(code=0)
 
-    _report(services.runtime.run(request, commit=True))
+    # Commit the plan that was shown, not a freshly derived one.
+    _report(services.runtime.commit_planned(planned))
 
 
 @app.command("plan")
