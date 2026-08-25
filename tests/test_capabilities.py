@@ -191,3 +191,86 @@ class TestEvidenceNotPayloads:
         run(harness, scan_round())
         described = str(agent.seen_prior) + str(store.describe())
         assert "SENSITIVE" not in described
+
+
+class TestUnusableResponses:
+    """A response that violates its contract is a failed round, not a failed run.
+
+    The capability has rounds precisely so it can correct itself, and it can only do that
+    if the reason reaches the next one.
+    """
+
+    class _Malformed:
+        """An agent that returns something unusable, then something valid."""
+
+        def __init__(self, then: Organization) -> None:
+            self.then = then
+            self.calls = 0
+            self.seen_prior: list[list[dict]] = []
+
+        def organize(self, *, capability, request, artifacts, context, prior, catalog_summary):
+            from shakespeare.contracts import ErrorCode
+            from shakespeare.gateway import GatewayError
+
+            self.calls += 1
+            self.seen_prior.append(prior)
+            if self.calls == 1:
+                raise GatewayError(
+                    "model response does not satisfy Organization", ErrorCode.MODEL_PERMANENT
+                )
+            return self.then, None
+
+    def test_the_run_survives_and_the_capability_retries(self, tmp_path: Path) -> None:
+        from shakespeare.artifacts import ArtifactStore
+        from shakespeare.capabilities import CapabilityRunner
+        from shakespeare.executor import Executor
+        from shakespeare.operators.builtin import build_registry
+        from shakespeare.verifier import Verifier
+
+        source = tmp_path / "in"
+        source.mkdir()
+        (source / "a.pdf").write_bytes(b"x")
+
+        agent = self._Malformed(scan_round())
+        operators = build_registry()
+        verifier = Verifier(operators)
+        store = ArtifactStore(root=tmp_path / "artifacts", run_id="r")
+        runner = CapabilityRunner(
+            executor=Executor(operators, verifier), agents={"*": agent}, artifacts=store
+        )
+        outcome = runner.run(
+            capability=SURVEY,
+            request="inventory it",
+            context={"root": str(source)},
+            budget=Budget(envelope=BudgetEnvelope(), items=0),
+            workspace=tmp_path / "work",
+        )
+        assert outcome.sufficient, "the capability recovered on its second round"
+        assert len(outcome.rounds) == 2
+        assert outcome.rounds[0].denial is not None
+
+    def test_the_reason_reaches_the_next_round(self, tmp_path: Path) -> None:
+        from shakespeare.artifacts import ArtifactStore
+        from shakespeare.capabilities import CapabilityRunner
+        from shakespeare.executor import Executor
+        from shakespeare.operators.builtin import build_registry
+        from shakespeare.verifier import Verifier
+
+        source = tmp_path / "in"
+        source.mkdir()
+        agent = self._Malformed(scan_round())
+        operators = build_registry()
+        verifier = Verifier(operators)
+        runner = CapabilityRunner(
+            executor=Executor(operators, verifier),
+            agents={"*": agent},
+            artifacts=ArtifactStore(root=tmp_path / "artifacts", run_id="r"),
+        )
+        runner.run(
+            capability=SURVEY,
+            request="inventory it",
+            context={"root": str(source)},
+            budget=Budget(envelope=BudgetEnvelope(), items=0),
+            workspace=tmp_path / "work",
+        )
+        assert "does not satisfy Organization" in str(agent.seen_prior[1])

@@ -27,7 +27,7 @@ from pydantic import model_validator
 from ..artifacts import Artifact, ArtifactStore, Quality
 from ..contracts import Composition, Contract, ErrorCode, Invocation, OperatorAsk
 from ..executor import Budget, Executor, InvocationResult
-from ..gateway import ModelUsage
+from ..gateway import GatewayError, ModelUsage
 from ..verifier import Denial
 from .registry import CapabilitySpec
 
@@ -158,16 +158,38 @@ class CapabilityRunner:
         working = dict(context)
 
         for number in range(1, capability.max_rounds + 1):
-            organization, usage = agent.organize(
-                capability=capability,
-                request=request,
-                artifacts=self.artifacts.describe(),
-                context=_summarise(working),
-                # The capability sees its own prior rounds. This is what lets it carry on
-                # rather than restart, and what makes "enough evidence" its judgment.
-                prior=[item.digest_row() for item in rounds],
-                catalog_summary=_catalog_summary(capability, self.config_root),
-            )
+            try:
+                organization, usage = agent.organize(
+                    capability=capability,
+                    request=request,
+                    artifacts=self.artifacts.describe(),
+                    context=_summarise(working),
+                    # The capability sees its own prior rounds. This is what lets it carry
+                    # on rather than restart, and what makes "enough evidence" its
+                    # judgment.
+                    prior=[item.digest_row() for item in rounds],
+                    catalog_summary=_catalog_summary(capability, self.config_root),
+                )
+            except GatewayError as failure:
+                # A response that violates its contract is a failed round, not a failed
+                # run. The capability has rounds precisely so it can correct itself, and
+                # the reason reaches the next one.
+                if self.usage_sink is not None:
+                    self.usage_sink(
+                        f"capability.{capability.id}",
+                        failure.usage,
+                        capability.prompt_version,
+                    )
+                rounds.append(
+                    Round(
+                        number=number,
+                        organization=Organization(intent="unusable response"),
+                        results=(),
+                        denial=str(failure),
+                    )
+                )
+                continue
+
             if self.usage_sink is not None:
                 self.usage_sink(f"capability.{capability.id}", usage, capability.prompt_version)
 
