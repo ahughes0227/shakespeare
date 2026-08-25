@@ -14,6 +14,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from pydantic import ValidationError
+
 from .contracts import (
     BudgetEnvelope,
     BudgetUsage,
@@ -261,6 +263,24 @@ class Executor:
 
         with span as state:
             try:
+                # Before the runner: a missing or mistyped argument is a contract
+                # violation, and saying so beats a KeyError from deep inside an operator.
+                registered.check_input(arguments)
+            except ValidationError as exc:
+                if state is not None:
+                    state.fail(ErrorCode.COMPOSITION_INVALID)
+                return InvocationResult(
+                    invocation_id=invocation.invocation_id,
+                    operator=invocation.operator,
+                    operator_version=spec.version,
+                    succeeded=False,
+                    started_at=started_at,
+                    ended_at=_isoformat(time.time()),
+                    error_code=ErrorCode.COMPOSITION_INVALID,
+                    error_detail=_explain(invocation.operator, exc),
+                )
+
+            try:
                 runner = _load_entrypoint(spec.entrypoint)
                 output = runner(arguments, workspace)
                 output = registered.validate_output(output)
@@ -294,6 +314,15 @@ class Executor:
             output=output,
             output_digest=digest,
         )
+
+
+def _explain(operator: str, error: ValidationError) -> str:
+    """A message an agent can act on next attempt, not a stack of pydantic internals."""
+    problems = []
+    for item in error.errors():
+        field = ".".join(str(part) for part in item["loc"]) or "<root>"
+        problems.append(f"{field}: {item['msg']}")
+    return f"{operator} argument contract not satisfied - " + "; ".join(problems[:5])
 
 
 def _isoformat(epoch: float) -> str:

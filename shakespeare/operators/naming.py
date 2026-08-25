@@ -14,7 +14,7 @@ from datetime import date, datetime
 from enum import StrEnum
 from typing import Any
 
-from pydantic import Field
+from pydantic import Field, field_validator
 
 from ..contracts import Contract, content_digest
 
@@ -65,7 +65,25 @@ class NamePolicy(Contract):
     replacement: str = "-"
     collapse_whitespace: bool = True
     #: Applied after formatting; maps a raw value to its canonical form.
+    #:
+    #: Accepts either direction. `{"ACME Corp": "ACME"}` maps a variant to its canonical
+    #: form; `{"ACME": ["ACME Corp", "ACME Ltd"]}` gives the canonical form and its
+    #: variants. Both are natural readings of the word "alias", so both are honoured.
     aliases: dict[str, str] = Field(default_factory=dict)
+
+    @field_validator("aliases", mode="before")
+    @classmethod
+    def _normalise_aliases(cls, value: Any) -> Any:
+        if not isinstance(value, dict):
+            return value
+        flattened: dict[str, str] = {}
+        for key, item in value.items():
+            if isinstance(item, (list, tuple)):
+                for variant in item:
+                    flattened[str(variant)] = str(key)
+            else:
+                flattened[str(key)] = str(item)
+        return flattened
 
 
 class RenderResult(Contract):

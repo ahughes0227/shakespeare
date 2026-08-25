@@ -15,6 +15,8 @@ from collections.abc import Callable
 from pathlib import Path, PurePosixPath
 from typing import Any
 
+from pydantic import ValidationError
+
 from .contracts import ChangeAction, ChangePlan, OperatorFamily, ReversalRecord
 from .operators import extraction, filesystem, mutation, naming, planning, text
 
@@ -227,7 +229,26 @@ def _collision_resolve(arguments: dict[str, Any], workspace: Path) -> dict[str, 
 
 
 def _freeze_spec(arguments: dict[str, Any], workspace: Path) -> dict[str, Any]:
-    spec, digest = naming.freeze_spec(naming.NamingSpec.model_validate(arguments["spec"]))
+    payload = arguments["spec"]
+    try:
+        parsed = naming.NamingSpec.model_validate(payload)
+    except ValidationError as exc:
+        # A spec is executable, not documentary, so commentary keys are rejected — but
+        # the message has to name them or the next attempt guesses again.
+        extras = sorted(
+            ".".join(str(part) for part in item["loc"])
+            for item in exc.errors()
+            if item["type"] == "extra_forbidden"
+        )
+        if extras:
+            raise RunnerError(
+                f"the naming spec carries keys it does not support: {extras}. "
+                f"A spec holds only template, fields, policy, collision_policy and "
+                f"confidence_floor; each field holds only name, kind, format, required "
+                f"and confidence_floor. Put nothing else in it."
+            ) from exc
+        raise RunnerError(f"the naming spec is invalid: {exc}") from exc
+    spec, digest = naming.freeze_spec(parsed)
     return {"spec": spec.model_dump(mode="json"), "digest": digest}
 
 

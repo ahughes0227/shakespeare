@@ -15,8 +15,8 @@ from uuid import uuid4
 from .admission import AdmissionService
 from .agent import DomainAgent
 from .audit import AuditStore
+from .compose import CompositionError, compose
 from .compose import catalog as hydra_catalog
-from .compose import compose
 from .contracts import (
     ChangePlan,
     Composition,
@@ -33,6 +33,7 @@ from .contracts import (
     utc_now,
 )
 from .executor import Budget, Executor, InvocationResult
+from .gateway import GatewayError
 from .operators import mutation
 from .operators.planning import CHECK_REQUIREMENTS
 from .planner import Planner, constrain
@@ -104,7 +105,7 @@ class Runtime:
 
     def run(self, request: RequestContract, *, commit: bool = True) -> RunResult:
         run_id = uuid4().hex
-        route, _ = self.planner.select_workflow(request, self.workflows.routing_catalog())
+        route, usage = self.planner.select_workflow(request, self.workflows.routing_catalog())
         if not route.supported or route.workflow_id not in self.workflows:
             return RunResult(
                 run_id=run_id,
@@ -128,6 +129,7 @@ class Runtime:
             input_root_digest=content_digest(request.input_root),
         )
 
+        self._record_usage(run_id, "planner.route", usage)
         context: dict[str, Any] = {
             "run_id": run_id,
             "workflow_id": workflow.spec.id,
@@ -234,42 +236,87 @@ class Runtime:
             started_at = utc_now().isoformat()
             attempts_remaining = stage.max_attempts - attempt
 
-            plan, _ = self.planner.plan_stage(stage, request, context)
+            # The budget is resolved before planning so a stage plan is itself charged
+            # against the stage's model allowance.
+            budget = Budget(envelope=stage.budget, items=_item_count(context))
+            plan, usage = self.planner.plan_stage(stage, request, context)
+            self._record_usage(run_id, "planner.stage_plan", usage, budget=budget)
             self.verifier.verify_stage_plan(plan, stage)
             if previous_plan is not None:
                 self.verifier.verify_rerun(previous_plan, plan)
             previous_plan = plan
 
-            budget = Budget(envelope=stage.budget, items=_item_count(context))
             attempt_context = dict(context)
             compositions: list[tuple[Composition, list[dict[str, Any]]]] = []
             results: dict[str, tuple[InvocationResult, ...]] = {}
 
+            denial: Denial | None = None
             for goal in plan.activated:
                 domain = stage.domain(goal.domain_id)
                 agent = self.agents.get(domain.id) or self.agents["*"]
-                composition, _ = agent.compose(
-                    domain=domain,
-                    goal=goal,
-                    stage_inputs=attempt_context,
-                    catalog_summary=_catalog_summary(domain.config_groups, self.config_root),
-                )
-                config = compose(
-                    _selections(composition),
-                    allowed_groups=domain.config_groups,
-                    config_root=self.config_root,
-                )
-                produced = self.executor.execute(
-                    composition,
-                    domain,
-                    stage_inputs=attempt_context,
-                    config=config,
-                    workspace=workspace,
+                try:
+                    composition, usage = agent.compose(
+                        domain=domain,
+                        goal=goal,
+                        stage_inputs=attempt_context,
+                        catalog_summary=_catalog_summary(
+                            domain.config_groups, self.config_root
+                        ),
+                    )
+                except GatewayError as failure:
+                    self._record_usage(
+                        run_id,
+                        f"domain.{domain.id}",
+                        failure.usage,
+                        prompt_version=domain.prompt_version,
+                    )
+                    # A model that returns a response violating its contract is exactly
+                    # the recoverable case the attempt loop exists for. Killing the run
+                    # here would also lose the reason.
+                    denial = Denial(
+                        ErrorCode.COMPOSITION_INVALID,
+                        f"{domain.id} returned no usable composition: {failure}",
+                    )
+                    results[domain.id] = ()
+                    break
+                self._record_usage(
+                    run_id,
+                    f"domain.{domain.id}",
+                    usage,
                     budget=budget,
-                    stage=stage.name,
-                    attempt=attempt,
-                    granted=frozenset(self.grants.get(domain.id, set())),
+                    prompt_version=domain.prompt_version,
                 )
+                try:
+                    config = compose(
+                        _selections(composition),
+                        allowed_groups=domain.config_groups,
+                        config_root=self.config_root,
+                    )
+                    produced = self.executor.execute(
+                        composition,
+                        domain,
+                        stage_inputs=attempt_context,
+                        config=config,
+                        workspace=workspace,
+                        budget=budget,
+                        stage=stage.name,
+                        attempt=attempt,
+                        granted=frozenset(self.grants.get(domain.id, set())),
+                    )
+                except (Denial, CompositionError) as refusal:
+                    # A refusal is evidence. Journalling the composition that caused it is
+                    # the only way anyone can see what the agent actually asked for, and an
+                    # invalid composition is exactly the recoverable case the attempt loop
+                    # exists for — so the planner reviews it rather than the run dying here.
+                    denial = (
+                        refusal
+                        if isinstance(refusal, Denial)
+                        else Denial(ErrorCode.COMPOSITION_INVALID, str(refusal))
+                    )
+                    compositions.append((composition, []))
+                    results[domain.id] = ()
+                    break
+
                 results[domain.id] = produced
                 if composition.ask is not None:
                     self._handle_ask(composition.ask, domain=domain, run_id=run_id)
@@ -289,14 +336,40 @@ class Runtime:
                 obligations, {k: v for k, v in payloads.items() if v is not None}
             )
 
-            verdict, _ = self.planner.review_stage(
+            if denial is not None and denial.code is not ErrorCode.COMPOSITION_INVALID:
+                # Budget or approval failures are not recoverable by rerunning: the same
+                # attempt would hit the same wall.
+                self._journal_attempt(
+                    run_id=run_id, stage=stage, attempt=attempt, started_at=started_at,
+                    plan=plan, compositions=compositions, checked=checked,
+                    verdict=StageVerdict(
+                        met=False,
+                        decision=StageDecision.ABORT,
+                        rationale=denial.reason,
+                    ),
+                    error_code=str(denial.code),
+                )
+                raise denial
+
+            verdict, usage = self.planner.review_stage(
                 stage,
                 plan,
                 checked,
-                _summary(results),
+                _summary(results, denial),
                 attempts_remaining=attempts_remaining,
             )
+            self._record_usage(run_id, "planner.stage_review", usage, budget=budget)
             verdict = constrain(verdict, checked)
+            if denial is not None and verdict.decision is StageDecision.ACCEPT:
+                verdict = verdict.model_copy(
+                    update={
+                        "met": False,
+                        "decision": StageDecision.RERUN
+                        if attempts_remaining
+                        else StageDecision.ABORT,
+                        "rationale": f"composition refused: {denial.reason}",
+                    }
+                )
             if verdict.decision is StageDecision.RERUN and attempts_remaining == 0:
                 verdict = verdict.model_copy(
                     update={
@@ -307,17 +380,16 @@ class Runtime:
                     }
                 )
 
-            self.audit.record_attempt(
-                run_id=run_id,
-                stage_name=stage.name,
-                stage_version=stage.version,
-                attempt_no=attempt,
-                started_at=started_at,
-                plan=plan,
-                compositions=compositions,
-                obligations=checked,
-                verdict=verdict,
-                error_code=None if verdict.met else str(ErrorCode.OBLIGATION_FAILED),
+            self._journal_attempt(
+                run_id=run_id, stage=stage, attempt=attempt, started_at=started_at,
+                plan=plan, compositions=compositions, checked=checked, verdict=verdict,
+                error_code=(
+                    str(denial.code)
+                    if denial is not None
+                    else None
+                    if verdict.met
+                    else str(ErrorCode.OBLIGATION_FAILED)
+                ),
             )
 
             outcome = StageOutcome(
@@ -336,6 +408,66 @@ class Runtime:
 
         assert outcome is not None
         return outcome
+
+    def _record_usage(
+        self,
+        run_id: str,
+        role: str,
+        usage: Any,
+        *,
+        budget: Budget | None = None,
+        prompt_version: str | None = None,
+    ) -> None:
+        """Record and charge a model call.
+
+        Without this `journal costs` reports zero for a real run and the model-invocation
+        budget is never charged, so both the bill and the meter read empty while money is
+        actually being spent.
+        """
+        if usage is None:
+            return
+        self.audit.record_model_invocation(
+            run_id=run_id,
+            role=role,
+            profile_id=getattr(usage, "profile_id", role),
+            requested_model=usage.requested_model,
+            resolved_model=usage.resolved_model,
+            provider=usage.provider,
+            prompt_version=prompt_version,
+            prompt_tokens=usage.prompt_tokens,
+            completion_tokens=usage.completion_tokens,
+            cost_usd=usage.cost_usd,
+        )
+        if budget is not None:
+            budget.consume_model_invocation(
+                tokens=usage.total_tokens, cost_usd=usage.cost_usd
+            )
+
+    def _journal_attempt(
+        self,
+        *,
+        run_id: str,
+        stage: StageSpec,
+        attempt: int,
+        started_at: str,
+        plan: StagePlan,
+        compositions: list[tuple[Composition, list[dict[str, Any]]]],
+        checked: tuple[ObligationResult, ...],
+        verdict: StageVerdict,
+        error_code: str | None,
+    ) -> None:
+        self.audit.record_attempt(
+            run_id=run_id,
+            stage_name=stage.name,
+            stage_version=stage.version,
+            attempt_no=attempt,
+            started_at=started_at,
+            plan=plan,
+            compositions=compositions,
+            obligations=checked,
+            verdict=verdict,
+            error_code=error_code,
+        )
 
     def _handle_ask(self, ask: Any, *, domain: DomainSpec, run_id: str) -> None:
         """Evaluate a subagent's operator request after its composition has run.
@@ -526,13 +658,30 @@ def _payload_for(checker: str, context: dict[str, Any]) -> dict[str, Any] | None
     return payload if len(payload) == len(required) else None
 
 
-def _summary(results: dict[str, tuple[InvocationResult, ...]]) -> dict[str, Any]:
+def _summary(
+    results: dict[str, tuple[InvocationResult, ...]], denial: Denial | None = None
+) -> dict[str, Any]:
     """What the planner sees about an attempt: shape and outcomes, never content."""
-    return {
+    summary: dict[str, Any] = {}
+    if denial is not None:
+        # The planner needs the refusal in words to revise a goal usefully.
+        summary["refusal"] = {"code": str(denial.code), "reason": denial.reason}
+    summary["domains"] = {
         domain: {
             "invocations": len(items),
             "succeeded": sum(1 for item in items if item.succeeded),
-            "errors": [str(item.error_code) for item in items if item.error_code],
+            # The detail, not just the code. A planner told only "operator_failed" cannot
+            # revise a goal usefully, and its rerun repeats the same class of mistake.
+            "failures": [
+                {
+                    "operator": item.operator,
+                    "code": str(item.error_code),
+                    "detail": (item.error_detail or "")[:400],
+                }
+                for item in items
+                if not item.succeeded
+            ],
         }
         for domain, items in results.items()
     }
+    return summary

@@ -87,6 +87,8 @@ class ErrorCode(StrEnum):
     APPROVAL_TIMEOUT = "approval_timeout"
     ATTEMPTS_EXHAUSTED = "attempts_exhausted"
     COMMIT_VERIFICATION_FAILED = "commit_verification_failed"
+    #: An invocation the composition never got to, because an earlier one failed.
+    NOT_REACHED = "not_reached"
 
 
 class ChangeAction(StrEnum):
@@ -222,6 +224,23 @@ class Invocation(Contract):
     #: operator's output onto the next operator's parameter without either having to
     #: agree on vocabulary in advance.
     bindings: dict[str, str] = Field(default_factory=dict)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _accept_mapping_inputs(cls, value: Any) -> Any:
+        """Tolerate `inputs` given as a mapping.
+
+        `inputs` and `bindings` sit next to each other and mean adjacent things, and a
+        model that writes {"root": "input_root"} into `inputs` has expressed a perfectly
+        clear intention. Refusing it would waste an attempt on a naming confusion rather
+        than on anything about the work.
+        """
+        if isinstance(value, dict) and isinstance(value.get("inputs"), dict):
+            supplied = dict(value["inputs"])
+            value = dict(value)
+            value["bindings"] = {**supplied, **(value.get("bindings") or {})}
+            value["inputs"] = tuple(dict.fromkeys(supplied.values()))
+        return value
 
     @field_validator("bindings")
     @classmethod

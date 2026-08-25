@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from ..contracts import OperatorFamily, OperatorSpec, RiskLevel
 from ..registry import FAMILY_RUNNERS, OperatorRegistry
+from .contracts import INPUT_MODELS
 
 #: Operators that write.  Granted to no domain: agents plan, the runtime commits.
 RUNTIME_ONLY: frozenset[str] = frozenset({"fs.stage", "fs.commit", "fs.reverse", "fs.discard"})
@@ -199,5 +200,5 @@ def operation_of(name: str) -> str:
 def build_registry() -> OperatorRegistry:
     registry = OperatorRegistry()
     for spec, _ in BUILTIN.values():
-        registry.register(spec)
+        registry.register(spec, input_model=INPUT_MODELS.get(spec.name))
     return registry

@@ -200,7 +200,8 @@ class AuditStore:
                         ended_at=outcome.get("ended_at", _now()),
                         succeeded=bool(outcome.get("succeeded", False)),
                         output_digest=outcome.get("output_digest"),
-                        error_code=outcome.get("error_code"),
+                        error_code=outcome.get("error_code")
+                        or (None if invocation.invocation_id in by_id else "not_reached"),
                     )
                 for source, target in composition.edges():
                     self._insert(

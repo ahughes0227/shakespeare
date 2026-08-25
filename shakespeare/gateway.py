@@ -24,9 +24,15 @@ T = TypeVar("T", bound=BaseModel)
 
 
 class GatewayError(RuntimeError):
-    def __init__(self, message: str, code: ErrorCode) -> None:
+    def __init__(
+        self, message: str, code: ErrorCode, usage: ModelUsage | None = None
+    ) -> None:
         super().__init__(message)
         self.code = code
+        #: Present when the provider was reached and billed but the response was
+        #: unusable. Without it a failed parse vanishes from the bill while still
+        #: costing money.
+        self.usage = usage
 
 
 class ModelProfile(Contract):
@@ -122,7 +128,10 @@ class LiteLLMGateway:
             completion_tokens=getattr(usage_data, "completion_tokens", 0) or 0,
             cost_usd=hidden.get("response_cost") or 0.0,
         )
-        return _parse(content, response_model), usage
+        try:
+            return _parse(content, response_model), usage
+        except GatewayError as exc:
+            raise GatewayError(str(exc), exc.code, usage=usage) from exc
 
 
 def _parse[M: BaseModel](content: str, response_model: type[M]) -> M:

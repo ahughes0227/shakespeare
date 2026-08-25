@@ -16,6 +16,7 @@ from typing import Any, Protocol
 
 from .contracts import Composition, Contract, DomainGoal, DomainSpec, Invocation
 from .gateway import Gateway, ModelProfile, ModelUsage, render_prompt
+from .operators.contracts import argument_summary
 from .prompts import PromptStore
 
 
@@ -57,7 +58,9 @@ class ModelDomainAgent:
             scope=domain.scope,
             goal=goal.goal,
             success_criterion=goal.success_criterion,
-            available_operators=sorted(domain.catalog),
+            available_operators={
+                name: argument_summary(name) for name in sorted(domain.catalog)
+            },
             available_config_groups=sorted(domain.config_groups),
             catalog=catalog_summary,
             stage_inputs=_for_prompt(stage_inputs),

@@ -39,6 +39,16 @@ class RegisteredOperator:
             return value
         return self.input_model.model_validate(value).model_dump(mode="json")
 
+    def check_input(self, value: dict[str, Any]) -> None:
+        """Validate without substituting.
+
+        The executor splats prior outputs and the composed config into the arguments, and
+        a runner legitimately reads keys its input model does not declare — so the
+        arguments must be checked, not replaced.
+        """
+        if self.input_model is not None:
+            self.input_model.model_validate(value)
+
     def validate_output(self, value: dict[str, Any]) -> dict[str, Any]:
         if self.output_model is None:
             return value
