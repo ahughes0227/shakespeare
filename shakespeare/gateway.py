@@ -41,7 +41,10 @@ class ModelProfile(Contract):
     #: run irreproducible, so the profile must name a fixed model.
     model: str
     api_base: str | None = None
-    max_output_tokens: int = 4096
+    #: Generous by default. A reasoning model spends part of its budget before emitting
+    #: anything, and a domain that reports per-item values for a large set needs room —
+    #: truncation there surfaced only as "malformed JSON".
+    max_output_tokens: int = 16384
     timeout_seconds: float = 120.0
 
 
@@ -117,7 +120,16 @@ class LiteLLMGateway:
                 ErrorCode.MODEL_TRANSIENT if transient else ErrorCode.MODEL_PERMANENT,
             ) from exc
 
-        content = response.choices[0].message.content or ""
+        choice = response.choices[0]
+        content = choice.message.content or ""
+        if getattr(choice, "finish_reason", None) == "length":
+            raise GatewayError(
+                f"the response was cut off at the {profile.max_output_tokens}-token limit, "
+                f"so it is incomplete rather than malformed. Ask for less in one response, "
+                f"or raise max_output_tokens.",
+                ErrorCode.MODEL_PERMANENT,
+                usage=_usage_of(response, profile),
+            )
         hidden = getattr(response, "_hidden_params", {}) or {}
         usage_data = getattr(response, "usage", None)
         usage = ModelUsage(
@@ -132,6 +144,19 @@ class LiteLLMGateway:
             return _parse(content, response_model), usage
         except GatewayError as exc:
             raise GatewayError(str(exc), exc.code, usage=usage) from exc
+
+
+def _usage_of(response: Any, profile: ModelProfile) -> ModelUsage:
+    hidden = getattr(response, "_hidden_params", {}) or {}
+    usage_data = getattr(response, "usage", None)
+    return ModelUsage(
+        requested_model=profile.model,
+        resolved_model=getattr(response, "model", None),
+        provider=hidden.get("custom_llm_provider") or hidden.get("llm_provider"),
+        prompt_tokens=getattr(usage_data, "prompt_tokens", 0) or 0,
+        completion_tokens=getattr(usage_data, "completion_tokens", 0) or 0,
+        cost_usd=hidden.get("response_cost") or 0.0,
+    )
 
 
 def _parse[M: BaseModel](content: str, response_model: type[M]) -> M:

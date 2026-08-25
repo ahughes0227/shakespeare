@@ -144,7 +144,7 @@ def _format_value(value: Any, decl: FieldDecl) -> str:
                         f"{decl.name}: expected an ISO date (YYYY-MM-DD) or a value "
                         f"already matching {pattern!r}, got {moment!r}"
                     ) from None
-                return moment
+                return str(moment)
         if isinstance(moment, datetime):
             moment = moment.date()
         if not isinstance(moment, date):
