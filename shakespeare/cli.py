@@ -370,7 +370,9 @@ def undo(
 
     from .audit import schema
 
-    services = _services(state_root)
+    # Reversal replays journaled facts and makes no model call, so it must not require a
+    # model profile to be configured.
+    services = _services(state_root, planner=_no_model(), agents={})
     with services.audit.engine.begin() as connection:
         commit_row = connection.execute(
             select(schema.commits).where(schema.commits.c.run_id == run_id)

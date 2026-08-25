@@ -213,13 +213,15 @@ def _email(item_id: str, path: Path, options: ExtractOptions) -> Extraction:
         except ImportError:
             return _unavailable(item_id, Backend.EMAIL, "backend_unavailable:extract-msg")
         try:
-            with extract_msg.Message(str(path)) as message:
+            # Read defensively: extract_msg's stubs type the factory as MSGFile, which
+            # declares none of these, and the attribute set has moved between releases.
+            with extract_msg.Message(str(path)) as outlook:  # type: ignore[no-untyped-call]
                 parts = [
-                    f"From: {message.sender}",
-                    f"To: {message.to}",
-                    f"Subject: {message.subject}",
-                    f"Date: {message.date}",
-                    message.body or "",
+                    f"From: {getattr(outlook, 'sender', '')}",
+                    f"To: {getattr(outlook, 'to', '')}",
+                    f"Subject: {getattr(outlook, 'subject', '')}",
+                    f"Date: {getattr(outlook, 'date', '')}",
+                    str(getattr(outlook, "body", "") or ""),
                 ]
         except Exception as exc:  # noqa: BLE001
             return _unavailable(item_id, Backend.EMAIL, f"unreadable:{type(exc).__name__}")
@@ -228,13 +230,13 @@ def _email(item_id: str, path: Path, options: ExtractOptions) -> Extraction:
         from email import policy
 
         try:
-            message = email.message_from_bytes(path.read_bytes(), policy=policy.default)
-            body = message.get_body(preferencelist=("plain", "html"))
+            parsed = email.message_from_bytes(path.read_bytes(), policy=policy.default)
+            body = parsed.get_body(preferencelist=("plain", "html"))
             parts = [
-                f"From: {message.get('From', '')}",
-                f"To: {message.get('To', '')}",
-                f"Subject: {message.get('Subject', '')}",
-                f"Date: {message.get('Date', '')}",
+                f"From: {parsed.get('From', '')}",
+                f"To: {parsed.get('To', '')}",
+                f"Subject: {parsed.get('Subject', '')}",
+                f"Date: {parsed.get('Date', '')}",
                 body.get_content() if body else "",
             ]
         except Exception as exc:  # noqa: BLE001

@@ -27,11 +27,28 @@ def utc_now() -> datetime:
     return datetime.now(UTC)
 
 
+def _stable(value: Any) -> Any:
+    """Normalise a value so its JSON form does not depend on the process.
+
+    Sets are the reason this exists. A `frozenset` field dumps to a list in iteration
+    order, and Python randomises string hashing per process — so a workflow digest
+    differed on every run, which silently made replay impossible and every recorded
+    digest meaningless.
+    """
+    if isinstance(value, (set, frozenset)):
+        return sorted((_stable(item) for item in value), key=repr)
+    if isinstance(value, dict):
+        return {str(key): _stable(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_stable(item) for item in value]
+    if isinstance(value, BaseModel):
+        return _stable(value.model_dump(mode="python"))
+    return value
+
+
 def canonical_json(value: Any) -> str:
     """Stable JSON used for every digest.  Sorted keys, no incidental whitespace."""
-    if isinstance(value, BaseModel):
-        value = value.model_dump(mode="json")
-    return json.dumps(value, sort_keys=True, separators=(",", ":"), default=str)
+    return json.dumps(_stable(value), sort_keys=True, separators=(",", ":"), default=str)
 
 
 def content_digest(value: Any) -> str:

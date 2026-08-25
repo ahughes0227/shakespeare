@@ -38,10 +38,12 @@ class RegisteredWorkflow:
         Prompt versions are included, so promoting a compiled prompt changes the digest
         and `replay` can never silently use a newer prompt than the run did.
         """
+        # The models, not pre-dumped JSON: dumping first turns every frozenset into a
+        # list in hash order, and the normaliser can no longer tell it was a set.
         return content_digest(
             {
-                "workflow": self.spec.model_dump(mode="json"),
-                "stages": [stage.model_dump(mode="json") for stage in self.stages],
+                "workflow": self.spec,
+                "stages": list(self.stages),
                 "prompts": {
                     f"{stage.name}.{domain.id}": domain.prompt_version
                     for stage in self.stages
