@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import Any, Protocol
 
 from pydantic import Field as PydanticField
+from pydantic import model_validator
 
 from ..artifacts import Artifact, ArtifactStore, Quality
 from ..contracts import Composition, Contract, ErrorCode, Invocation, OperatorAsk
@@ -49,6 +50,23 @@ class Organization(Contract):
     #: How complete that artifact is. PARTIAL is how a capability says "correct so far".
     quality: Quality = Quality.COMPLETE
     summary: dict[str, Any] = PydanticField(default_factory=dict)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _accept_common_shapes(cls, value: Any) -> Any:
+        """Tolerate two shapes a model reaches for.
+
+        A response wrapped in {"organization": {...}} is the same answer with a label on
+        it, and `publishes` given as a one-element list is the same choice written as the
+        options it was offered. Neither is worth losing a round over.
+        """
+        if isinstance(value, dict) and "organization" in value and "invocations" not in value:
+            value = value["organization"]
+        if isinstance(value, dict) and isinstance(value.get("publishes"), (list, tuple)):
+            published = value["publishes"]
+            value = {**value, "publishes": published[0] if published else None}
+        return value
+
     #: A component this capability lacked. Evaluated after the round runs, so an admitted
     #: component becomes usable on the next round rather than mid-organization.
     ask: OperatorAsk | None = None

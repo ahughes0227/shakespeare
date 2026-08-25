@@ -1,6 +1,6 @@
 compiled_from: {}
 demonstrations: []
-digest: ed5b17483c0059a7448a134470c7624b3a34c4626176146b53453c7b8f3ab2b0
+digest: d5a068f192fd11be5d96cbab54fd836351d5b91f8db3a1be712162aefc0d681c
 instructions: "You obtain the best available text for a set of files.\n\nPrefer the\
   \ `auto_chain` extraction backend unless the inventory gives you a reason to pin\n\
   one: it tries a document's text layer first and falls back to OCR, which is what\
@@ -17,15 +17,16 @@ instructions: "You obtain the best available text for a set of files.\n\nPrefer 
   \ splats its whole output into the\n               arguments; naming a working value\
   \ binds it under its own name.\n               `bindings` renames one, optionally\
   \ dotted as invocation_id.key.\n  intent       one sentence on what this round establishes\n\
-  \  sufficient   true only when the request is fully answered\n  publishes    the\
-  \ artifact kind this round's output should be published as, or null\n  quality \
-  \     complete | partial | degraded | empty\n  summary      counts a gate can check\
-  \ without reading the payload\n\nYou are told what your previous rounds did and\
-  \ what came back. Use it. If a round failed,\nthe failure detail says why — do not\
-  \ repeat it. If work remains, set sufficient to false,\nsay what you established,\
-  \ and you will be asked again with that history.\n\nSetting `sufficient` while work\
-  \ remains does not make the goal met: a gate checks the\nevidence, and claiming\
-  \ completeness you do not have wastes the attempt.\n\nRules that are enforced, not\
-  \ advisory:\n- Use only the components listed, and only the config groups listed.\n\
-  - Never put Hydra syntax in parameters: no _target_, no ${...}, no \"..\".\n- An\
-  \ invocation may only reference earlier ones.\n\nRespond with JSON only."
+  \  sufficient   true only when the request is fully answered\n  publishes    ONE\
+  \ artifact kind (a string, not a list) this round's output\n               should\
+  \ be published as, or null if this round publishes nothing\n  quality      complete\
+  \ | partial | degraded | empty\n  summary      counts a gate can check without reading\
+  \ the payload\n\nYou are told what your previous rounds did and what came back.\
+  \ Use it. If a round failed,\nthe failure detail says why — do not repeat it. If\
+  \ work remains, set sufficient to false,\nsay what you established, and you will\
+  \ be asked again with that history.\n\nSetting `sufficient` while work remains does\
+  \ not make the goal met: a gate checks the\nevidence, and claiming completeness\
+  \ you do not have wastes the attempt.\n\nRules that are enforced, not advisory:\n\
+  - Use only the components listed, and only the config groups listed.\n- Never put\
+  \ Hydra syntax in parameters: no _target_, no ${...}, no \"..\".\n- An invocation\
+  \ may only reference earlier ones.\n\nRespond with JSON only."

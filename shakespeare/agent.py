@@ -46,7 +46,7 @@ class ModelCapabilityAgent:
             working_context=context,
             previous_rounds=prior,
             rounds_remaining=capability.max_rounds - len(prior),
-            publishes=list(capability.produces),
+            publishes_choose_one=list(capability.produces),
         )
         return self.gateway.complete(self.profile, messages, Organization)
 

@@ -264,14 +264,35 @@ class Invocation(Contract):
             value["inputs"] = tuple(dict.fromkeys(supplied.values()))
         return value
 
+    @field_validator("bindings", mode="before")
+    @classmethod
+    def _clean_bindings(cls, value: Any) -> Any:
+        """Drop empty bindings and unwrap single-element ones.
+
+        A binding to an empty list means "nothing to bind" and dropping it is what the
+        author meant; a single-element list is the same reference written differently.
+        """
+        if not isinstance(value, dict):
+            return value
+        cleaned: dict[str, Any] = {}
+        for target, source in value.items():
+            if isinstance(source, (list, tuple)):
+                if not source:
+                    continue
+                source = source[0]
+            cleaned[target] = source
+        return cleaned
+
     @field_validator("bindings")
     @classmethod
-    def _identifier_keys(cls, value: dict[str, str]) -> dict[str, str]:
+    def _label_references(cls, value: dict[str, str]) -> dict[str, str]:
         for target, source in value.items():
             if not target.isidentifier():
-                raise ValueError(f"binding target must be an identifier: {target}")
-            if not all(part.isidentifier() for part in source.split(".")):
-                raise ValueError(f"binding source must be a dotted identifier: {source}")
+                raise ValueError(f"binding target must be an argument name: {target}")
+            # The source names an invocation or a working value. Those are labels, not
+            # Python identifiers, so "inv-1.window" is a legitimate reference.
+            if not all(_LABEL.match(part) for part in source.split(".")):
+                raise ValueError(f"binding source must be a dotted label: {source}")
         return value
 
 
@@ -474,6 +495,7 @@ class SemanticCard(Contract):
 # --------------------------------------------------------------------------------------
 
 
+_LABEL = re.compile(r"^[A-Za-z0-9_-]+$")
 _STAGE_REF = re.compile(r"^[a-z][a-z0-9_]*@\d+\.\d+\.\d+$")
 
 
