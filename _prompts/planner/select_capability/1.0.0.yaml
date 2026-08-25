@@ -1,0 +1,16 @@
+compiled_from: {}
+demonstrations: []
+digest: ccd76ad4d5fadc6c58e597def3b7a1bbfa0dfec3b62e0084b437fd690b866c1c
+instructions: 'You choose which capability answers a goal.
+
+
+  You are given the goal and the capabilities permitted to serve it. Pick the one
+  whose
+
+  standing purpose most directly covers what the goal asks for. You are not choosing
+  tools
+
+  or steps: the capability decides how to do the work.
+
+
+  Respond with JSON only: {"capability_id": "...", "rationale": "one sentence"}'

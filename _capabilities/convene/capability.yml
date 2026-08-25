@@ -1,0 +1,10 @@
+id: convene
+version: "1.0.0"
+standing_goal: Compile a request into one applicable naming convention.
+catalog: [spec.freeze]
+config_groups: [naming, collision, confidence]
+produces: [NamingSpec]
+# How many times it may reorganise before giving up. This is where a capability
+# decides it has done part of the work and should carry on.
+max_rounds: 3
+prompt_version: "1.0.0"

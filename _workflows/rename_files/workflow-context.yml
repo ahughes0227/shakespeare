@@ -1,10 +1,10 @@
-purpose: Rename files into an output tree mirroring the input, using a convention derived from the request.
-lifecycle: Inventory, extract, freeze a convention, resolve fields, plan, review, then commit atomically.
+purpose: Rename files into an output tree mirroring the input, by a convention derived from the request.
+lifecycle: Inventory and convention can overlap; reading, naming, planning and review follow in dependency order.
 contracts: A prompt and an input root in; a mirrored output tree and a balanced change plan out.
-allowed_configuration: Extraction backend, naming policy, collision policy and confidence floor.
+allowed_configuration: Extraction backend, naming policy, collision policy, confidence floor and window size.
 side_effects: Writes a new output root. The input tree is never modified.
 risks: Misread fields producing wrong names, colliding targets, or dropped files.
 failure_modes: Unreadable documents, OCR unavailable, unbalanced accounting, verification mismatch.
-resource_limits: Budgets scale per item; unbounded file counts are supported.
+resource_limits: Capabilities take large sets in windows, so file counts are not bounded by one model response.
 examples: Renaming scanned invoices to "YYYYMM, vendor, invoice number, PO number.pdf"; numbering files sequentially.
-provenance: Pinned stage versions, operator versions, the frozen spec digest and the audit log.
+provenance: Goal satisfaction, gate results, artifact digests, component versions and the audit log.

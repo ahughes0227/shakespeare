@@ -285,15 +285,9 @@ def replay(
         _fail(f"run {run_id} recorded no plan to reproduce")
         return
 
-    stage_of = {
-        domain.id: stage.name
-        for ref in inspect.stages.refs()
-        for stage in [inspect.stages.get(ref)]
-        for domain in stage.domains
-    }
     try:
         planner, agents, workflow_id, recorded_digest = journal_components(
-            inspect.audit, run_id, stage_of=stage_of
+            inspect.audit, run_id
         )
         assert_same_workflow(recorded_digest, inspect.workflows.get(workflow_id).digest())
     except (ReplayError, KeyError) as exc:
@@ -406,42 +400,53 @@ def workflows_list() -> None:
     table = Table(title="Registered workflows")
     table.add_column("id", style="bold")
     table.add_column("version")
-    table.add_column("spine")
+    table.add_column("goals")
     for workflow_id in services.workflows.ids():
         registered = services.workflows.get(workflow_id)
         table.add_row(
-            workflow_id, registered.spec.version, " → ".join(registered.spec.spine)
+            workflow_id,
+            registered.spec.version,
+            ", ".join(goal.id for goal in registered.spec.goals),
         )
     console.print(table)
 
 
 @workflows_app.command("validate")
 def workflows_validate() -> None:
-    """Type-check every spine: contracts, stage versions, catalogs and config groups."""
+    """Check every goal graph: dependencies, capabilities, gates and required evidence."""
     services = _services(planner=_no_model(), agents={})
     for workflow_id in services.workflows.ids():
         registered = services.workflows.get(workflow_id)
-        chain = [registered.spec.entry_contract] + [s.output_contract for s in registered.stages]
-        console.print(f"[green]✓[/green] {workflow_id}  {' → '.join(chain)}")
+        console.print(f"[green]✓[/green] {workflow_id}")
+        for goal in registered.spec.graph.goals:
+            after = f"  after {', '.join(goal.depends_on)}" if goal.depends_on else ""
+            console.print(
+                f"    [bold]{goal.id:18}[/bold] {str(goal.gate.kind):14}"
+                f" requires {', '.join(goal.gate.requires) or '-'}"
+                f"  via {', '.join(goal.capabilities)}{after}"
+            )
     if not services.workflows.ids():
         console.print("[yellow]No workflows registered.[/yellow]")
 
 
-@app.command("stages")
-def stages_list() -> None:
+@app.command("capabilities")
+def capabilities_list() -> None:
+    """Registered capabilities: what each is for, and what evidence it can produce."""
     services = _services(planner=_no_model(), agents={})
-    table = Table(title="Registered stages")
-    table.add_column("ref", style="bold")
-    table.add_column("in → out")
-    table.add_column("domains")
-    for ref in services.stages.refs():
-        spec = services.stages.get(ref)
-        domains = ", ".join(
-            f"{d.id}{'*' if d.skippable else ''}" for d in spec.domains
+    table = Table(title="Registered capabilities")
+    table.add_column("id", style="bold")
+    table.add_column("standing goal")
+    table.add_column("produces")
+    table.add_column("rounds")
+    for capability_id in services.capabilities.ids():
+        spec = services.capabilities.get(capability_id)
+        table.add_row(
+            capability_id,
+            spec.standing_goal[:48],
+            ", ".join(spec.produces),
+            str(spec.max_rounds),
         )
-        table.add_row(ref, f"{spec.input_contract} → {spec.output_contract}", domains)
     console.print(table)
-    console.print("[dim]* skippable[/dim]")
 
 
 @app.command("operators")
@@ -628,23 +633,26 @@ def _decide(
 def prompts_list(
     prompt_root: Annotated[Path | None, typer.Option("--prompts", hidden=True)] = None,
 ) -> None:
-    """Every prompt artifact, and which version each stage pins."""
+    """Every prompt artifact, and which version each capability pins."""
     from .prompts import PromptStore
 
     services = _services(planner=_no_model(), agents={})
     store = PromptStore(prompt_root)
     pinned = {
-        domain.id: (stage.name, domain.prompt_version)
-        for ref in services.stages.refs()
-        for stage in [services.stages.get(ref)]
-        for domain in stage.domains
+        capability_id: ("capability", services.capabilities.get(capability_id).prompt_version)
+        for capability_id in services.capabilities.ids()
     }
     table = Table(title="Prompt artifacts")
     table.add_column("signature", style="bold")
     table.add_column("versions")
     table.add_column("pinned by")
-    for signature in sorted(set(pinned) | {"planner.route", "planner.stage_plan",
-                                           "planner.stage_review"}):
+    planner_signatures = {
+        "planner.route",
+        "planner.select_goal",
+        "planner.select_capability",
+        "planner.judge_gate",
+    }
+    for signature in sorted(set(pinned) | planner_signatures):
         versions = store.versions(signature)
         if not versions:
             continue

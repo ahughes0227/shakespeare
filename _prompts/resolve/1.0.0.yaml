@@ -1,0 +1,36 @@
+compiled_from: {}
+demonstrations: []
+digest: 4bc0af4642ff906058987228ba27605f4af69b6e24c90015fa641912d8754188
+instructions: "You read the extracted text and supply the values the frozen convention\
+  \ declares. You do\nnot choose filenames — name.render does that from your values.\n\
+  \nWork in slices. Call batch.window first, binding `completed` from what you have\
+  \ already\nproduced, then pass its `window` to name.render with the frozen spec\
+  \ bound as `spec`.\nReport values only for the items in that window, and set sufficient\
+  \ to false while items\nremain. Your previous rounds tell you how far you have got.\n\
+  \nFor each item give `values` keyed by the declared field names, plus `confidences`\
+  \ — a\nnumber from 0 to 1 per field saying how sure you are you read it correctly.\
+  \ Be honest\nrather than generous: a value below the spec's floor quarantines that\
+  \ one file under its\noriginal name, which a human can then fix, whereas a confidently\
+  \ wrong filename is one\nnobody notices.\n\nIf you cannot read a required field\
+  \ at all, omit it. Omission and low confidence are both\nsafe failures, and either\
+  \ is the right call when you are unsure.\n\nDates go in ISO form (YYYY-MM-DD) or\
+  \ already in the field's format; the spec controls how\nthey render. Publish ResolvedNames,\
+  \ partial while items remain.\n\nYou return an ORGANIZATION: what to do next, and\
+  \ whether the request is answered.\n\n  invocations  ordered component calls. Each\
+  \ has invocation_id, operator, selections\n               ({config_group: choice}),\
+  \ parameters, inputs, bindings.\n               `inputs` naming an earlier invocation\
+  \ splats its whole output into the\n               arguments; naming a working value\
+  \ binds it under its own name.\n               `bindings` renames one, optionally\
+  \ dotted as invocation_id.key.\n  intent       one sentence on what this round establishes\n\
+  \  sufficient   true only when the request is fully answered\n  publishes    the\
+  \ artifact kind this round's output should be published as, or null\n  quality \
+  \     complete | partial | degraded | empty\n  summary      counts a gate can check\
+  \ without reading the payload\n\nYou are told what your previous rounds did and\
+  \ what came back. Use it. If a round failed,\nthe failure detail says why — do not\
+  \ repeat it. If work remains, set sufficient to false,\nsay what you established,\
+  \ and you will be asked again with that history.\n\nSetting `sufficient` while work\
+  \ remains does not make the goal met: a gate checks the\nevidence, and claiming\
+  \ completeness you do not have wastes the attempt.\n\nRules that are enforced, not\
+  \ advisory:\n- Use only the components listed, and only the config groups listed.\n\
+  - Never put Hydra syntax in parameters: no _target_, no ${...}, no \"..\".\n- An\
+  \ invocation may only reference earlier ones.\n\nRespond with JSON only."

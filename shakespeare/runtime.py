@@ -1,8 +1,12 @@
-"""The workflow-agnostic driver.
+"""The single composition root and the run entry point.
 
-Nothing here knows about renaming.  A stage is executed, its obligations are checked, the
-planner reviews it, and the attempt loop runs until the stage is accepted or the package's
-`max_attempts` is spent.  The commit is the runtime's, never an agent's.
+The control model is the framework's (§19): the planner asks what it needs next and who
+can answer it, a capability plans within its bounded domain, components execute
+deterministically, artifacts are produced, and a gate decides whether the goal is
+satisfied. There is no spine to walk.
+
+Everything transactional is Shakespeare's own and unchanged by that: staging, balanced
+accounting, two-phase commit, journalled reversal, and replay.
 """
 
 from __future__ import annotations
@@ -10,56 +14,32 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
-from uuid import uuid4
 
-from .admission import AdmissionService
-from .agent import DomainAgent
+from .artifacts import ArtifactStore
 from .audit import AuditStore
-from .compose import CompositionError, compose
-from .compose import catalog as hydra_catalog
+from .capabilities import CapabilityRegistry, CapabilityRunner
 from .contracts import (
+    BudgetEnvelope,
     ChangePlan,
-    Composition,
-    DomainSpec,
     ErrorCode,
-    Obligation,
-    ObligationResult,
     RequestContract,
-    StageDecision,
-    StagePlan,
-    StageSpec,
-    StageVerdict,
     content_digest,
-    utc_now,
 )
-from .executor import Budget, Executor, InvocationResult
-from .gateway import GatewayError
+from .control import Controller, GoalAttempt, commit_if_verified, new_run_id
+from .executor import Budget, Executor
+from .goals import Goal
 from .operators import mutation
-from .operators.planning import CHECK_REQUIREMENTS
-from .planner import Planner, constrain
 from .prompts import PromptStore
 from .registry import OperatorRegistry
-from .stages import StageRegistry
 from .telemetry import Tracer
 from .verifier import Denial, Verifier
 from .workflows import RegisteredWorkflow, WorkflowRegistry
 
 
 class RuntimeError_(RuntimeError):
-    """Raised when a run cannot continue.  Carries a closed error code for the SLIs."""
-
     def __init__(self, message: str, code: ErrorCode) -> None:
         super().__init__(message)
         self.code = code
-
-
-@dataclass
-class StageOutcome:
-    stage: StageSpec
-    attempts: int
-    verdict: StageVerdict
-    obligations: tuple[ObligationResult, ...]
-    results: dict[str, tuple[InvocationResult, ...]] = field(default_factory=dict)
 
 
 @dataclass
@@ -69,11 +49,10 @@ class RunResult:
     outcome: str
     plan: ChangePlan | None = None
     committed_to: str | None = None
-    stages: tuple[StageOutcome, ...] = ()
+    attempts: tuple[GoalAttempt, ...] = ()
+    satisfied: frozenset[str] = frozenset()
     error_code: ErrorCode | None = None
     detail: str = ""
-    #: Where a planned-but-uncommitted run would commit to, so the approved plan can be
-    #: committed later without re-deriving it.
     planned_output_root: str | None = None
 
     @property
@@ -83,31 +62,34 @@ class RunResult:
 
 @dataclass
 class Runtime:
-    """The single composition root."""
-
     operators: OperatorRegistry
-    stages: StageRegistry
+    capabilities: CapabilityRegistry
     workflows: WorkflowRegistry
     verifier: Verifier
     executor: Executor
-    planner: Planner
-    agents: dict[str, DomainAgent]
+    planner: Any
+    agents: dict[str, Any]
     audit: AuditStore
     workspace_root: Path
     tracer: Tracer | None = None
     prompts: PromptStore = field(default_factory=PromptStore)
     config_root: str | None = None
-    #: Optional. Without it a subagent's operator request is recorded and refused rather
-    #: than evaluated, which is the right default for an unattended run.
-    admission: AdmissionService | None = None
-    #: Operators admitted during this run, per domain. Populated only by a completed
-    #: admission decision, never by an agent.
+    admission: Any = None
     grants: dict[str, set[str]] = field(default_factory=dict)
-
-    # -- entry point --------------------------------------------------------------------
+    #: Per-capability budget. Resolved against the item count when a capability is asked
+    #: to do something, since file counts are unbounded.
+    budget: BudgetEnvelope = field(
+        default_factory=lambda: BudgetEnvelope.model_validate(
+            {
+                "operator_calls": "40 + 6*n",
+                "model_invocations": "20 + 2*n",
+                "wall_time_seconds": 5400,
+            }
+        )
+    )
 
     def run(self, request: RequestContract, *, commit: bool = True) -> RunResult:
-        run_id = uuid4().hex
+        run_id = new_run_id()
         route, usage = self.planner.select_workflow(request, self.workflows.routing_catalog())
         if not route.supported or route.workflow_id not in self.workflows:
             return RunResult(
@@ -131,581 +113,174 @@ class Runtime:
             request_digest=request.digest(),
             input_root_digest=content_digest(request.input_root),
         )
-
         self._record_usage(run_id, "planner.route", usage)
-        context: dict[str, Any] = {
-            "run_id": run_id,
-            "workflow_id": workflow.spec.id,
-            "workflow_digest": workflow.digest(),
-            "root": request.input_root,
-            "input_root": request.input_root,
-            "output_root": request.output_root,
-            "staging_root": str(staging),
-            "prompt": request.prompt,
-        }
 
-        outcomes: list[StageOutcome] = []
+        artifacts = ArtifactStore(root=workspace / "artifacts", run_id=run_id)
+        controller = Controller(
+            capabilities=self.capabilities,
+            runner=CapabilityRunner(
+                executor=self.executor,
+                agents=self.agents,
+                artifacts=artifacts,
+                config_root=self.config_root,
+                usage_sink=lambda role, usage, version: self._record_usage(
+                    run_id, role, usage, prompt_version=version
+                ),
+            ),
+            artifacts=artifacts,
+            audit=self.audit,
+            planner=self.planner,
+            workspace=workspace,
+            tracer=self.tracer,
+            context={
+                "run_id": run_id,
+                "workflow_id": workflow.spec.id,
+                "workflow_digest": workflow.digest(),
+                "root": request.input_root,
+                "input_root": request.input_root,
+                "output_root": request.output_root,
+                "staging_root": str(staging),
+                "prompt": request.prompt,
+            },
+        )
+
         try:
-            for stage in workflow.stages:
-                outcome = self._run_stage(
-                    stage=stage,
-                    request=request,
-                    context=context,
-                    workspace=workspace,
-                    run_id=run_id,
-                )
-                outcomes.append(outcome)
-                if outcome.verdict.decision is StageDecision.ACCEPT:
-                    # Materialising a plan is a write, so the runtime does it — never a
-                    # domain agent.  Doing it here means the review stage has a real tree
-                    # to verify while the source is still untouched.
-                    self._ensure_staged(
-                        run_id=run_id,
-                        context=context,
-                        input_root=Path(request.input_root),
-                        staging=staging,
-                    )
-                if outcome.verdict.decision is not StageDecision.ACCEPT:
-                    mutation.discard(staging)
-                    self.audit.record_run_outcome(
-                        run_id=run_id,
-                        outcome="aborted",
-                        error_code=str(ErrorCode.ATTEMPTS_EXHAUSTED),
-                    )
-                    return RunResult(
-                        run_id=run_id,
-                        workflow_id=workflow.spec.id,
-                        outcome="aborted",
-                        stages=tuple(outcomes),
-                        error_code=ErrorCode.ATTEMPTS_EXHAUSTED,
-                        detail=f"stage {stage.name} was not accepted: {outcome.verdict.rationale}",
-                    )
-                if stage.name == workflow.spec.commit_after:
-                    break
+            attempts, satisfied, failure = controller.pursue(
+                graph=workflow.spec.graph,
+                request=request,
+                run_id=run_id,
+                budget_for=self._budget_for,
+            )
         except Denial as denial:
             mutation.discard(staging)
-            denial_outcome = (
-                "aborted" if denial.code is ErrorCode.ATTEMPTS_EXHAUSTED else "denied"
-            )
             self.audit.record_run_outcome(
-                run_id=run_id, outcome=denial_outcome, error_code=str(denial.code)
+                run_id=run_id, outcome="denied", error_code=str(denial.code)
             )
             return RunResult(
                 run_id=run_id,
                 workflow_id=workflow.spec.id,
-                outcome=denial_outcome,
-                stages=tuple(outcomes),
+                outcome="denied",
                 error_code=denial.code,
                 detail=denial.reason,
             )
 
-        plan = self._plan_from_context(context)
+        self._journal(run_id, workflow, attempts)
+
+        if failure is not None:
+            mutation.discard(staging)
+            self.audit.record_run_outcome(
+                run_id=run_id, outcome="aborted", error_code=str(ErrorCode.OBLIGATION_FAILED)
+            )
+            return RunResult(
+                run_id=run_id,
+                workflow_id=workflow.spec.id,
+                outcome="aborted",
+                attempts=attempts,
+                satisfied=satisfied,
+                error_code=ErrorCode.OBLIGATION_FAILED,
+                detail=failure,
+            )
+
+        plan = self._plan_from(controller.context)
         if plan is not None:
             self.audit.record_plan(run_id=run_id, plan=plan)
+            self._ensure_staged(
+                run_id=run_id,
+                context=controller.context,
+                plan=plan,
+                input_root=Path(request.input_root),
+                staging=staging,
+            )
+
         if not commit:
-            # No outcome is recorded: `run_outcomes` says how a run *ended*, and a planned
-            # run has not. It ends when someone commits it or abandons it, and recording
-            # "planned" as terminal would make the later commit a duplicate.
             return RunResult(
                 run_id=run_id,
                 workflow_id=workflow.spec.id,
                 outcome="planned",
                 plan=plan,
-                stages=tuple(outcomes),
+                attempts=attempts,
+                satisfied=satisfied,
                 planned_output_root=request.output_root,
             )
 
-        return self._commit(
-            run_id=run_id,
-            workflow=workflow,
+        outcome, detail = commit_if_verified(
             plan=plan,
             staging=staging,
             output_root=Path(request.output_root),
-            outcomes=tuple(outcomes),
+            audit=self.audit,
+            run_id=run_id,
+        )
+        self.audit.record_run_outcome(
+            run_id=run_id,
+            outcome=outcome,
+            error_code=None if outcome == "committed" else str(
+                ErrorCode.COMMIT_VERIFICATION_FAILED
+            ),
+        )
+        return RunResult(
+            run_id=run_id,
+            workflow_id=workflow.spec.id,
+            outcome=outcome,
+            plan=plan,
+            committed_to=str(request.output_root) if outcome == "committed" else None,
+            attempts=attempts,
+            satisfied=satisfied,
+            detail=detail,
         )
 
     def commit_planned(self, result: RunResult) -> RunResult:
-        """Commit the plan a previous planning run produced.
-
-        Replanning after approval would re-invoke the model and could commit a different
-        plan than the one shown, which is exactly what two-phase commit exists to prevent.
-        The staging tree was already materialised during planning, so committing is
-        verification plus one atomic move — and no model call at all.
-        """
+        """Commit the plan a previous planning run produced — that plan, not a new one."""
         if result.plan is None:
             raise RuntimeError_(
                 "there is no plan to commit", ErrorCode.COMMIT_VERIFICATION_FAILED
             )
-        workflow = self.workflows.get(result.workflow_id)
         workspace = self.workspace_root / result.run_id
-        return self._commit(
-            run_id=result.run_id,
-            workflow=workflow,
+        outcome, detail = commit_if_verified(
             plan=result.plan,
             staging=workspace / "staging",
             output_root=Path(result.planned_output_root or ""),
-            outcomes=result.stages,
+            audit=self.audit,
+            run_id=result.run_id,
         )
-
-    # -- the attempt loop ---------------------------------------------------------------
-
-    def _run_stage(
-        self,
-        *,
-        stage: StageSpec,
-        request: RequestContract,
-        context: dict[str, Any],
-        workspace: Path,
-        run_id: str,
-    ) -> StageOutcome:
-        previous_plan: StagePlan | None = None
-        outcome: StageOutcome | None = None
-        window = 0
-        attempt = 0
-
-        # Two nested bounds, and they mean different things. `max_attempts` limits how
-        # often a *failed* attempt may be retried; `max_windows` limits how many
-        # *successful* slices a stage may take. Conflating them would make a stage that
-        # is merely large look like a stage that is failing.
-        continuing = False
-        while True:
-            window += 1
-            attempt = 0
-            continuing = False
-            while attempt < stage.max_attempts:
-                attempt += 1
-                started_at = utc_now().isoformat()
-                attempts_remaining = stage.max_attempts - attempt
-
-                # The budget is resolved before planning so a stage plan is itself charged
-                # against the stage's model allowance.
-                budget = Budget(envelope=stage.budget, items=_item_count(context))
-                plan, usage = self.planner.plan_stage(stage, request, context)
-                self._record_usage(run_id, "planner.stage_plan", usage, budget=budget)
-                self.verifier.verify_stage_plan(plan, stage)
-                if previous_plan is not None:
-                    self.verifier.verify_rerun(previous_plan, plan)
-                previous_plan = plan
-
-                attempt_context = dict(context)
-                compositions: list[tuple[Composition, list[dict[str, Any]]]] = []
-                results: dict[str, tuple[InvocationResult, ...]] = {}
-
-                denial: Denial | None = None
-                for goal in plan.activated:
-                    domain = stage.domain(goal.domain_id)
-                    agent = self.agents.get(domain.id) or self.agents["*"]
-                    try:
-                        composition, usage = agent.compose(
-                            domain=domain,
-                            goal=goal,
-                            stage_inputs=attempt_context,
-                            catalog_summary=_catalog_summary(
-                                domain.config_groups, self.config_root
-                            ),
-                        )
-                    except GatewayError as failure:
-                        self._record_usage(
-                            run_id,
-                            f"domain.{domain.id}",
-                            failure.usage,
-                            prompt_version=domain.prompt_version,
-                        )
-                        # A model that returns a response violating its contract is exactly
-                        # the recoverable case the attempt loop exists for. Killing the run
-                        # here would also lose the reason.
-                        denial = Denial(
-                            ErrorCode.COMPOSITION_INVALID,
-                            f"{domain.id} returned no usable composition: {failure}",
-                        )
-                        results[domain.id] = ()
-                        break
-                    self._record_usage(
-                        run_id,
-                        f"domain.{domain.id}",
-                        usage,
-                        budget=budget,
-                        prompt_version=domain.prompt_version,
-                    )
-                    try:
-                        config = compose(
-                            _selections(composition),
-                            allowed_groups=domain.config_groups,
-                            config_root=self.config_root,
-                        )
-                        produced = self.executor.execute(
-                            composition,
-                            domain,
-                            stage_inputs=attempt_context,
-                            config=config,
-                            workspace=workspace,
-                            budget=budget,
-                            stage=stage.name,
-                            attempt=attempt,
-                            granted=frozenset(self.grants.get(domain.id, set())),
-                        )
-                    except (Denial, CompositionError) as refusal:
-                        # A refusal is evidence. Journalling the composition that caused it is
-                        # the only way anyone can see what the agent actually asked for, and an
-                        # invalid composition is exactly the recoverable case the attempt loop
-                        # exists for — so the planner reviews it rather than the run dying here.
-                        denial = (
-                            refusal
-                            if isinstance(refusal, Denial)
-                            else Denial(ErrorCode.COMPOSITION_INVALID, str(refusal))
-                        )
-                        compositions.append((composition, []))
-                        results[domain.id] = ()
-                        break
-
-                    results[domain.id] = produced
-                    if composition.ask is not None:
-                        self._handle_ask(composition.ask, domain=domain, run_id=run_id)
-                    compositions.append((composition, [item.journal_row() for item in produced]))
-                    for item in produced:
-                        if item.output:
-                            attempt_context.update(item.output)
-
-                # Merge this window into what earlier windows produced, before the
-                # obligations are checked. Checking a window against a whole-set
-                # obligation would fail every window but the last, and committing the
-                # window alone would throw away everything before it.
-                self._accumulate(stage, context, attempt_context)
-
-                obligations = tuple(
-                    Obligation(id=name, description=name, checker=name)
-                    for name in stage.obligations
-                )
-                payloads = {
-                    obligation.id: _payload_for(obligation.checker, attempt_context)
-                    for obligation in obligations
-                }
-                checked = self.verifier.check_obligations(
-                    obligations, {k: v for k, v in payloads.items() if v is not None}
-                )
-
-                if denial is not None and denial.code is not ErrorCode.COMPOSITION_INVALID:
-                    # Budget or approval failures are not recoverable by rerunning: the same
-                    # attempt would hit the same wall.
-                    self._journal_attempt(
-                        run_id=run_id, stage=stage, attempt=attempt, started_at=started_at,
-                        plan=plan, compositions=compositions, checked=checked,
-                        verdict=StageVerdict(
-                            met=False,
-                            decision=StageDecision.ABORT,
-                            rationale=denial.reason,
-                        ),
-                        error_code=str(denial.code),
-                    )
-                    raise denial
-
-                verdict, usage = self.planner.review_stage(
-                    stage,
-                    plan,
-                    checked,
-                    _summary(results, denial),
-                    attempts_remaining=attempts_remaining,
-                )
-                self._record_usage(run_id, "planner.stage_review", usage, budget=budget)
-                verdict = constrain(verdict, checked)
-                if denial is not None and verdict.decision is StageDecision.ACCEPT:
-                    verdict = verdict.model_copy(
-                        update={
-                            "met": False,
-                            "decision": StageDecision.RERUN
-                            if attempts_remaining
-                            else StageDecision.ABORT,
-                            "rationale": f"composition refused: {denial.reason}",
-                        }
-                    )
-                if verdict.decision is StageDecision.RERUN and attempts_remaining == 0:
-                    verdict = verdict.model_copy(
-                        update={
-                            "decision": StageDecision.ABORT,
-                            "rationale": (
-                                f"{verdict.rationale} (max_attempts={stage.max_attempts} spent)"
-                            ),
-                        }
-                    )
-
-                self._journal_attempt(
-                    run_id=run_id, stage=stage, attempt=attempt, started_at=started_at,
-                    plan=plan, compositions=compositions, checked=checked, verdict=verdict,
-                    error_code=(
-                        str(denial.code)
-                        if denial is not None
-                        else None
-                        if verdict.met
-                        else str(ErrorCode.OBLIGATION_FAILED)
-                    ),
-                )
-
-                outcome = StageOutcome(
-                    stage=stage,
-                    attempts=attempt,
-                    verdict=verdict,
-                    obligations=checked,
-                    results=results,
-                )
-                if verdict.decision is StageDecision.ACCEPT:
-                    context.clear()
-                    context.update(attempt_context)
-                    return outcome
-
-                if verdict.decision is StageDecision.CONTINUE:
-                    context.clear()
-                    context.update(attempt_context)
-                    if window >= stage.max_windows:
-                        return StageOutcome(
-                            stage=stage,
-                            attempts=attempt,
-                            verdict=verdict.model_copy(
-                                update={
-                                    "decision": StageDecision.ABORT,
-                                    "rationale": (
-                                        f"{verdict.rationale} (max_windows="
-                                        f"{stage.max_windows} spent with work remaining)"
-                                    ),
-                                }
-                            ),
-                            obligations=outcome.obligations,
-                            results=outcome.results,
-                        )
-                    previous_plan = None
-                    continuing = True
-                    break
-
-                if verdict.decision is StageDecision.ABORT:
-                    return outcome
-
-            if continuing:
-                continue  # next window; the break above left the attempt loop, not this one
-
-            # The inner loop ended without a terminal verdict: attempts are spent.
-            assert outcome is not None
-            return outcome
-
-    def _record_usage(
-        self,
-        run_id: str,
-        role: str,
-        usage: Any,
-        *,
-        budget: Budget | None = None,
-        prompt_version: str | None = None,
-    ) -> None:
-        """Record and charge a model call.
-
-        Without this `journal costs` reports zero for a real run and the model-invocation
-        budget is never charged, so both the bill and the meter read empty while money is
-        actually being spent.
-        """
-        if usage is None:
-            return
-        self.audit.record_model_invocation(
-            run_id=run_id,
-            role=role,
-            profile_id=getattr(usage, "profile_id", role),
-            requested_model=usage.requested_model,
-            resolved_model=usage.resolved_model,
-            provider=usage.provider,
-            prompt_version=prompt_version,
-            prompt_tokens=usage.prompt_tokens,
-            completion_tokens=usage.completion_tokens,
-            cost_usd=usage.cost_usd,
+        self.audit.record_run_outcome(
+            run_id=result.run_id,
+            outcome=outcome,
+            error_code=None if outcome == "committed" else str(
+                ErrorCode.COMMIT_VERIFICATION_FAILED
+            ),
         )
-        if budget is not None:
-            budget.consume_model_invocation(
-                tokens=usage.total_tokens, cost_usd=usage.cost_usd
-            )
-
-    @staticmethod
-    def _accumulate(
-        stage: StageSpec, prior: dict[str, Any], attempt: dict[str, Any]
-    ) -> None:
-        """Fold this window's output into what earlier windows produced.
-
-        Only the keys a stage declares, so windowing is never an implicit behaviour that
-        quietly changes what a stage means. A stage that declares nothing is untouched.
-        """
-        for key in stage.accumulates:
-            running = list(prior.get(f"_accumulated_{key}") or [])
-            seen = {
-                item.get("item_id") for item in running if isinstance(item, dict)
-            }
-            for item in attempt.get(key) or []:
-                # A window replayed after a failed attempt must not double-count.
-                if isinstance(item, dict) and item.get("item_id") in seen:
-                    continue
-                running.append(item)
-                if isinstance(item, dict):
-                    seen.add(item.get("item_id"))
-            attempt[f"_accumulated_{key}"] = running
-            attempt[key] = running
-
-    def _journal_attempt(
-        self,
-        *,
-        run_id: str,
-        stage: StageSpec,
-        attempt: int,
-        started_at: str,
-        plan: StagePlan,
-        compositions: list[tuple[Composition, list[dict[str, Any]]]],
-        checked: tuple[ObligationResult, ...],
-        verdict: StageVerdict,
-        error_code: str | None,
-    ) -> None:
-        self.audit.record_attempt(
-            run_id=run_id,
-            stage_name=stage.name,
-            stage_version=stage.version,
-            attempt_no=attempt,
-            started_at=started_at,
-            plan=plan,
-            compositions=compositions,
-            obligations=checked,
-            verdict=verdict,
-            error_code=error_code,
-        )
-
-    def _handle_ask(self, ask: Any, *, domain: DomainSpec, run_id: str) -> None:
-        """Evaluate a subagent's operator request after its composition has run.
-
-        Deliberately after: a subagent never observes its own results, so an admitted
-        operator becomes usable on the next attempt rather than mid-composition. That
-        keeps the compose-once rule intact while still letting a run recover.
-        """
-        from .contracts import AdmissionChoice, AdmissionDisposition, DecidedBy, OperatorRequest
-
-        request = OperatorRequest(
-            request_id=uuid4().hex,
-            run_id=run_id,
-            domain_id=domain.id,
-            kind=ask.kind,
-            family=ask.family,
-            name=ask.name,
-            features=ask.features,
-            dependencies=ask.dependencies,
-            declared_side_effects=ask.declared_side_effects,
-            rationale=ask.rationale,
-        )
-        if self.admission is None:
-            # Recording it still matters: the request is evidence of a gap in the
-            # stage package, which is a human's problem to look at later.
-            self.audit.record_operator_request(request)
-            return
-
-        report, candidate = self.admission.evaluate(request)
-        if report.disposition is not AdmissionDisposition.AUTO_ADMIT:
-            # Escalated. The run continues without the operator; a person decides later
-            # through `shakespeare requests`.
-            return
-
-        self.admission.decide(
-            report,
-            candidate,
-            decided_by=DecidedBy.PLANNER,
-            choice=AdmissionChoice.APPROVE,
-            rationale="auto-admitted: low-risk declarative variant",
-        )
-        self.grants.setdefault(domain.id, set()).add(candidate.spec.name)
-
-    # -- commit -------------------------------------------------------------------------
-
-    def _commit(
-        self,
-        *,
-        run_id: str,
-        workflow: RegisteredWorkflow,
-        plan: ChangePlan | None,
-        staging: Path,
-        output_root: Path,
-        outcomes: tuple[StageOutcome, ...],
-    ) -> RunResult:
-        if plan is None:
-            self.audit.record_run_outcome(
-                run_id=run_id,
-                outcome="aborted",
-                error_code=str(ErrorCode.COMMIT_VERIFICATION_FAILED),
-            )
-            return RunResult(
-                run_id=run_id,
-                workflow_id=workflow.spec.id,
-                outcome="aborted",
-                stages=outcomes,
-                error_code=ErrorCode.COMMIT_VERIFICATION_FAILED,
-                detail="the workflow produced no change plan",
-            )
-
-        existing = self.audit.find_commit(
-            plan_digest=plan.fingerprint(), output_root=str(output_root)
-        )
-        if existing is not None and output_root.exists():
-            # Idempotency receipt: this exact plan has already been committed here, so
-            # re-applying it is a no-op rather than a collision with the output root.
-            mutation.discard(staging)
-            self.audit.record_run_outcome(run_id=run_id, outcome="already_committed")
-            return RunResult(
-                run_id=run_id,
-                workflow_id=workflow.spec.id,
-                outcome="committed",
-                plan=plan,
-                committed_to=str(output_root),
-                stages=outcomes,
-                detail=f"already committed by run {existing['run_id']}; nothing to do",
-            )
-
-        report = mutation.verify_tree(plan=plan, staging_root=staging)
-        if not report["ok"]:
-            mutation.discard(staging)
-            self.audit.record_run_outcome(
-                run_id=run_id,
-                outcome="aborted",
-                error_code=str(ErrorCode.COMMIT_VERIFICATION_FAILED),
-            )
-            return RunResult(
-                run_id=run_id,
-                workflow_id=workflow.spec.id,
-                outcome="aborted",
-                plan=plan,
-                stages=outcomes,
-                error_code=ErrorCode.COMMIT_VERIFICATION_FAILED,
-                detail=f"staging does not match the plan: {report}",
-            )
-
-        staging_digest = content_digest(report)
-        record = mutation.commit(staging_root=staging, output_root=output_root)
-        self.audit.record_commit(
-            run_id=run_id,
-            plan=plan,
-            staging_digest=staging_digest,
-            output_root=str(output_root),
-        )
-        self.audit.record_mutation(
-            run_id=run_id,
-            target_ref=str(output_root),
-            operation="commit",
-            reversal=record,
-            after_digest=staging_digest,
-        )
-        self.audit.record_run_outcome(run_id=run_id, outcome="committed")
         return RunResult(
-            run_id=run_id,
-            workflow_id=workflow.spec.id,
-            outcome="committed",
-            plan=plan,
-            committed_to=str(output_root),
-            stages=outcomes,
+            run_id=result.run_id,
+            workflow_id=result.workflow_id,
+            outcome=outcome,
+            plan=result.plan,
+            committed_to=result.planned_output_root if outcome == "committed" else None,
+            attempts=result.attempts,
+            satisfied=result.satisfied,
+            detail=detail,
         )
+
+    # -- helpers -----------------------------------------------------------------------
+
+    def _budget_for(self, goal: Goal, context: dict[str, Any]) -> Budget:
+        items = context.get("items")
+        return Budget(envelope=self.budget, items=len(items) if isinstance(items, list) else 0)
+
+    def _plan_from(self, context: dict[str, Any]) -> ChangePlan | None:
+        payload = context.get("plan")
+        return ChangePlan.model_validate(payload) if payload is not None else None
 
     def _ensure_staged(
-        self, *, run_id: str, context: dict[str, Any], input_root: Path, staging: Path
+        self,
+        *,
+        run_id: str,
+        context: dict[str, Any],
+        plan: ChangePlan,
+        input_root: Path,
+        staging: Path,
     ) -> None:
-        if context.get("_staged") or "plan" not in context:
-            return
-        plan = self._plan_from_context(context)
-        if plan is None:
+        """Materialising a plan is a write, so the runtime does it — never a capability."""
+        if context.get("_staged"):
             return
         reversals = mutation.stage_plan(
             plan=plan, input_root=input_root, staging_root=staging
@@ -719,69 +294,81 @@ class Runtime:
                 after_digest=record.payload.get("after_digest"),
             )
         context["_staged"] = True
-        context["staged_files"] = len(reversals)
 
-    def _plan_from_context(self, context: dict[str, Any]) -> ChangePlan | None:
-        payload = context.get("plan")
-        if payload is None:
-            return None
-        # No workflow type is imported here: ChangeEntry carries a subclass's extra fields
-        # through validation, so the driver stays ignorant of what a plan entry means.
-        return ChangePlan.model_validate(payload)
+    def _journal(
+        self, run_id: str, workflow: RegisteredWorkflow, attempts: tuple[GoalAttempt, ...]
+    ) -> None:
+        """Record each goal attempt as a unit of work, with its gate result."""
+        from .contracts import (
+            Composition,
+            DomainGoal,
+            ObligationResult,
+            StageDecision,
+            StagePlan,
+            StageVerdict,
+        )
 
+        for index, attempt in enumerate(attempts, start=1):
+            goal = workflow.spec.graph.goal(attempt.goal_id)
+            compositions = [
+                (
+                    Composition(
+                        domain_id=attempt.capability,
+                        invocations=round_.organization.invocations,
+                        rationale=round_.organization.intent,
+                    ),
+                    [item.journal_row() for item in round_.results],
+                )
+                for round_ in attempt.outcome.rounds
+            ]
+            self.audit.record_attempt(
+                run_id=run_id,
+                stage_name=goal.id,
+                stage_version=workflow.spec.version,
+                attempt_no=index,
+                started_at="",
+                plan=StagePlan(
+                    activated=(
+                        DomainGoal(
+                            domain_id=attempt.capability,
+                            goal=goal.statement,
+                            success_criterion=goal.gate.id,
+                        ),
+                    )
+                ),
+                compositions=compositions,
+                obligations=(
+                    ObligationResult(
+                        obligation_id=attempt.gate.gate_id,
+                        passed=attempt.gate.satisfied,
+                        detail={"outcome": str(attempt.gate.outcome)},
+                    ),
+                ),
+                verdict=StageVerdict(
+                    met=attempt.gate.satisfied,
+                    unmet=attempt.gate.failed_checks + attempt.gate.missing_kinds,
+                    decision=(
+                        StageDecision.ACCEPT if attempt.gate.satisfied else StageDecision.RERUN
+                    ),
+                    rationale=attempt.gate.rationale,
+                ),
+                error_code=None if attempt.gate.satisfied else str(ErrorCode.OBLIGATION_FAILED),
+            )
 
-# --------------------------------------------------------------------------------------
-# Helpers
-# --------------------------------------------------------------------------------------
-
-
-def _item_count(context: dict[str, Any]) -> int:
-    value = context.get("items")
-    return len(value) if isinstance(value, list) else int(context.get("count", 0) or 0)
-
-
-def _selections(composition: Composition) -> dict[str, str]:
-    merged: dict[str, str] = {}
-    for invocation in composition.invocations:
-        merged.update(invocation.selections)
-    return merged
-
-
-def _catalog_summary(groups: frozenset[str], config_root: str | None) -> dict[str, list[str]]:
-    available = hydra_catalog(config_root)
-    return {group: sorted(available[group]) for group in sorted(groups) if group in available}
-
-
-def _payload_for(checker: str, context: dict[str, Any]) -> dict[str, Any] | None:
-    required = CHECK_REQUIREMENTS.get(checker, ())
-    payload = {key: context[key] for key in required if key in context}
-    return payload if len(payload) == len(required) else None
-
-
-def _summary(
-    results: dict[str, tuple[InvocationResult, ...]], denial: Denial | None = None
-) -> dict[str, Any]:
-    """What the planner sees about an attempt: shape and outcomes, never content."""
-    summary: dict[str, Any] = {}
-    if denial is not None:
-        # The planner needs the refusal in words to revise a goal usefully.
-        summary["refusal"] = {"code": str(denial.code), "reason": denial.reason}
-    summary["domains"] = {
-        domain: {
-            "invocations": len(items),
-            "succeeded": sum(1 for item in items if item.succeeded),
-            # The detail, not just the code. A planner told only "operator_failed" cannot
-            # revise a goal usefully, and its rerun repeats the same class of mistake.
-            "failures": [
-                {
-                    "operator": item.operator,
-                    "code": str(item.error_code),
-                    "detail": (item.error_detail or "")[:400],
-                }
-                for item in items
-                if not item.succeeded
-            ],
-        }
-        for domain, items in results.items()
-    }
-    return summary
+    def _record_usage(
+        self, run_id: str, role: str, usage: Any, *, prompt_version: str | None = None
+    ) -> None:
+        if usage is None:
+            return
+        self.audit.record_model_invocation(
+            run_id=run_id,
+            role=role,
+            profile_id=role,
+            requested_model=usage.requested_model,
+            resolved_model=usage.resolved_model,
+            provider=usage.provider,
+            prompt_version=prompt_version,
+            prompt_tokens=usage.prompt_tokens,
+            completion_tokens=usage.completion_tokens,
+            cost_usd=usage.cost_usd,
+        )

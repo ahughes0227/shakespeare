@@ -1,0 +1,10 @@
+purpose: Inventory a tree of files and describe its structure.
+lifecycle: One or more read-only traversals until the inventory is complete.
+contracts: A request naming an input root; a FileInventory artifact of items and skips.
+allowed_configuration: Traversal depth and hidden-file handling.
+side_effects: None. This capability only reads.
+risks: Symlink escape, unreadable files disappearing silently, unbounded traversal.
+failure_modes: Input root missing, permission denied, depth limit exceeded.
+resource_limits: Bounded traversal depth; a small number of rounds.
+examples: Inventorying a nested folder of scanned invoices before anything reads them.
+provenance: Per-item digests, and the skips recorded rather than dropped.

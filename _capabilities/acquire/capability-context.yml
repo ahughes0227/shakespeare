@@ -1,0 +1,10 @@
+purpose: Obtain the best available text and provenance for a set of files.
+lifecycle: Extracts in slices, judging after each whether enough files now have text.
+contracts: A FileInventory in; an ExtractedContent artifact carrying text or a reason.
+allowed_configuration: Extraction backend, fallback chain, confidence floor, window size.
+side_effects: Workspace artifacts only. Input and output roots are untouched.
+risks: Missing OCR binaries, corrupt documents, unbounded output, slow parsing.
+failure_modes: Unsupported media type, no text layer, OCR unavailable, response truncated.
+resource_limits: A bounded window per round, up to max_rounds slices.
+examples: PDF text layers with an OCR fallback for the scans among them.
+provenance: Per-item backend selection, spans, and explicit unavailability reasons.

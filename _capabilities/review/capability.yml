@@ -1,0 +1,10 @@
+id: review
+version: "1.0.0"
+standing_goal: Verify a staged tree against a plan and surface exceptions.
+catalog: [fs.verify, fs.dirs]
+config_groups: []
+produces: [ReviewEvidence]
+# How many times it may reorganise before giving up. This is where a capability
+# decides it has done part of the work and should carry on.
+max_rounds: 3
+prompt_version: "1.0.0"

@@ -1,0 +1,10 @@
+purpose: Determine each item's declared field values and render its name.
+lifecycle: Works in windows, deciding after each whether items remain unresolved.
+contracts: A NamingSpec and ExtractedContent in; a ResolvedNames artifact out.
+allowed_configuration: Naming policy, confidence floor and window size.
+side_effects: None.
+risks: Guessing a value rather than quarantining, or misreading a scanned document.
+failure_modes: Missing required field, unformattable value, confidence below the floor.
+resource_limits: A bounded window per round, so a large set is taken in slices.
+examples: Reading vendor, invoice number and PO number from several hundred invoices.
+provenance: Per-item confidences and the frozen spec digest the names were rendered from.

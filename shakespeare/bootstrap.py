@@ -9,20 +9,21 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 from platformdirs import user_state_dir
 
 from .admission import AdmissionService
-from .agent import DomainAgent, ModelDomainAgent
+from .agent import ModelCapabilityAgent
 from .audit import AuditStore
+from .capabilities import CapabilityRegistry
 from .executor import Executor
 from .gateway import Gateway, LiteLLMGateway, ModelProfile, profile_from_environment
 from .operators.builtin import build_registry
-from .planner import ModelPlanner, Planner
+from .planner import ModelGoalPlanner
 from .prompts import PromptStore
 from .registry import OperatorRegistry
 from .runtime import Runtime
-from .stages import StageRegistry
 from .telemetry import Exporter, LangSmithExporter, NullExporter, Tracer
 from .verifier import Verifier
 from .workflows import WorkflowRegistry
@@ -50,7 +51,7 @@ class Services:
     runtime: Runtime
     audit: AuditStore
     operators: OperatorRegistry
-    stages: StageRegistry
+    capabilities: CapabilityRegistry
     workflows: WorkflowRegistry
     state_root: Path
 
@@ -58,8 +59,8 @@ class Services:
 def build_runtime(
     *,
     state_root: Path | None = None,
-    planner: Planner | None = None,
-    agents: dict[str, DomainAgent] | None = None,
+    planner: Any | None = None,
+    agents: dict[str, Any] | None = None,
     gateway: Gateway | None = None,
     profile: ModelProfile | None = None,
     run_id: str = "session",
@@ -68,8 +69,8 @@ def build_runtime(
     root.mkdir(mode=0o700, parents=True, exist_ok=True)
 
     operators = build_registry()
-    stages = StageRegistry()
-    workflows = WorkflowRegistry(stages=stages, operators=operators)
+    capabilities = CapabilityRegistry()
+    workflows = WorkflowRegistry(capabilities=capabilities, operators=operators)
     verifier = Verifier(operators)
     audit = AuditStore(root / "audit.sqlite3")
     tracer = Tracer(run_id, exporters())
@@ -78,11 +79,14 @@ def build_runtime(
     if planner is None or agents is None:
         gateway = gateway or LiteLLMGateway()
         profile = profile or profile_from_environment()
-        planner = planner or ModelPlanner(gateway=gateway, profile=profile, prompts=prompts)
-        # One agent implementation serves every domain: the domain's own package supplies
-        # the catalog and the pinned prompt, so there is nothing per-domain to wire.
-        agents = agents or {"*": ModelDomainAgent(gateway=gateway, profile=profile,
-                                                  prompts=prompts)}
+        planner = planner or ModelGoalPlanner(
+            gateway=gateway, profile=profile, prompts=prompts
+        )
+        # One agent serves every capability: the capability's own package supplies the
+        # catalog and the pinned prompt, so there is nothing per-capability to wire.
+        agents = agents or {
+            "*": ModelCapabilityAgent(gateway=gateway, profile=profile, prompts=prompts)
+        }
 
     admission = AdmissionService(
         registry=operators,
@@ -91,7 +95,7 @@ def build_runtime(
     )
     runtime = Runtime(
         operators=operators,
-        stages=stages,
+        capabilities=capabilities,
         workflows=workflows,
         verifier=verifier,
         executor=Executor(operators, verifier, tracer=tracer),
@@ -107,7 +111,7 @@ def build_runtime(
         runtime=runtime,
         audit=audit,
         operators=operators,
-        stages=stages,
+        capabilities=capabilities,
         workflows=workflows,
         state_root=root,
     )

@@ -15,6 +15,7 @@ from dataclasses import dataclass, field
 from typing import Any, Protocol
 
 from .contracts import (
+    Contract,
     ObligationResult,
     RequestContract,
     RouteDecision,
@@ -220,3 +221,142 @@ class FakePlanner:
         if queued:
             return (queued.pop(0) if len(queued) > 1 else queued[0]), None
         return default_verdict(obligations, attempts_remaining=attempts_remaining), None
+
+
+# --------------------------------------------------------------------------------------
+# The goal-driven planner (§6)
+# --------------------------------------------------------------------------------------
+
+GOAL_SIGNATURE = "planner.select_goal"
+CAPABILITY_SIGNATURE = "planner.select_capability"
+JUDGE_SIGNATURE = "planner.judge_gate"
+
+
+class GoalChoice(Contract):
+    goal_id: str
+    rationale: str = ""
+
+
+class CapabilityChoice(Contract):
+    capability_id: str
+    rationale: str = ""
+
+
+class Judgment(Contract):
+    """A gate's semantic half.
+
+    `satisfied` answers the framework's stopping question: would more work here be likely
+    to materially change the next decision? Not whether the work was thorough.
+    """
+
+    satisfied: bool
+    rationale: str = ""
+    missing: tuple[str, ...] = ()
+
+
+@dataclass
+class ModelGoalPlanner:
+    """Chooses what to pursue next and who answers it; judges semantic gates.
+
+    It does not reason about component calls. That decomposition belongs to the
+    capability, and the planner is deliberately never shown enough to do it.
+    """
+
+    gateway: Gateway
+    profile: ModelProfile
+    prompts: PromptStore = field(default_factory=PromptStore)
+    route_version: str = "1.0.0"
+    goal_version: str = "1.0.0"
+    capability_version: str = "1.0.0"
+    judge_version: str = "1.0.0"
+
+    def select_workflow(
+        self, request: RequestContract, catalog: dict[str, dict[str, str]]
+    ) -> tuple[RouteDecision, ModelUsage | None]:
+        artifact = self.prompts.load(ROUTE_SIGNATURE, self.route_version)
+        messages = render_prompt(artifact, prompt=request.prompt, workflows=catalog)
+        return self.gateway.complete(self.profile, messages, RouteDecision)
+
+    def select_goal(self, open_goals: Any, artifacts: list[dict[str, Any]]) -> str:
+        artifact = self.prompts.load(GOAL_SIGNATURE, self.goal_version)
+        messages = render_prompt(
+            artifact,
+            open_goals=[
+                {"id": goal.id, "statement": goal.statement, "requires": list(goal.gate.requires)}
+                for goal in open_goals
+            ],
+            artifacts=artifacts,
+        )
+        choice, _ = self.gateway.complete(self.profile, messages, GoalChoice)
+        return choice.goal_id
+
+    def select_capability(self, goal: Any, candidates: list[str]) -> str:
+        artifact = self.prompts.load(CAPABILITY_SIGNATURE, self.capability_version)
+        messages = render_prompt(
+            artifact, goal=goal.statement, candidates=candidates
+        )
+        choice, _ = self.gateway.complete(self.profile, messages, CapabilityChoice)
+        return choice.capability_id
+
+    def judge(
+        self,
+        *,
+        goal: Any,
+        rubric: str,
+        artifacts: list[dict[str, Any]],
+        evidence: dict[str, Any],
+    ) -> tuple[bool, str]:
+        artifact = self.prompts.load(JUDGE_SIGNATURE, self.judge_version)
+        messages = render_prompt(
+            artifact,
+            goal=goal.statement,
+            rubric=rubric,
+            artifacts=artifacts,
+            evidence=evidence,
+        )
+        judgment, _ = self.gateway.complete(self.profile, messages, Judgment)
+        return judgment.satisfied, judgment.rationale
+
+
+@dataclass
+class ScriptedGoalPlanner:
+    """Offline planner for the goal loop."""
+
+    route: RouteDecision | None = None
+    goal_order: list[str] = field(default_factory=list)
+    capability_choice: dict[str, str] = field(default_factory=dict)
+    judgments: list[tuple[bool, str]] = field(default_factory=list)
+    calls: list[str] = field(default_factory=list)
+
+    def select_workflow(
+        self, request: RequestContract, catalog: dict[str, dict[str, str]]
+    ) -> tuple[RouteDecision, ModelUsage | None]:
+        self.calls.append("select_workflow")
+        if self.route is None:
+            raise KeyError("ScriptedGoalPlanner has no queued route decision")
+        return self.route, None
+
+    def select_goal(self, open_goals: Any, artifacts: list[dict[str, Any]]) -> str:
+        self.calls.append("select_goal")
+        available = [goal.id for goal in open_goals]
+        for preferred in self.goal_order:
+            if preferred in available:
+                return preferred
+        return str(available[0])
+
+    def select_capability(self, goal: Any, candidates: list[str]) -> str:
+        self.calls.append("select_capability")
+        return self.capability_choice.get(goal.id, candidates[0])
+
+    def judge(
+        self,
+        *,
+        goal: Any,
+        rubric: str,
+        artifacts: list[dict[str, Any]],
+        evidence: dict[str, Any],
+    ) -> tuple[bool, str]:
+        self.calls.append(f"judge:{goal.id}")
+        if self.judgments:
+            return self.judgments.pop(0) if len(self.judgments) > 1 else self.judgments[0]
+        return True, "scripted: satisfied"

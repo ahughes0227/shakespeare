@@ -1,125 +1,83 @@
-"""Level-2 domain subagents.
+"""Capability-level agents.
 
-A subagent receives a goal, its declared scope, its operator catalog and the stage
-inputs, and returns exactly one `Composition`.  It then stops.  It does not call
-operators, does not see their results, and cannot adapt — if the results need
-interpreting, that is the next stage's job.
+A capability agent performs the meta-organization §8 places inside the capability: given
+a bounded request, the evidence available and what its own earlier rounds produced, it
+decides what to do next and whether the work is finished.
 
-The response model is a draft rather than a `Composition`, so an agent cannot claim to be
-acting for a different domain than the one it was issued.
+It organizes; it never executes. Components run through the verifier and the executor, so
+the catalog, the config groups and the write boundary remain exact whatever it decides.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Protocol
+from typing import Any
 
-from .contracts import Composition, Contract, DomainGoal, DomainSpec, Invocation
+from .capabilities.registry import CapabilitySpec
+from .capabilities.runner import Organization
 from .gateway import Gateway, ModelProfile, ModelUsage, render_prompt
-from .operators.contracts import argument_summary
 from .prompts import PromptStore
 
 
-class CompositionDraft(Contract):
-    """What the model is allowed to return."""
-
-    invocations: tuple[Invocation, ...]
-    rationale: str = ""
-
-
-class DomainAgent(Protocol):
-    def compose(
-        self,
-        *,
-        domain: DomainSpec,
-        goal: DomainGoal,
-        stage_inputs: dict[str, Any],
-        catalog_summary: dict[str, Any],
-    ) -> tuple[Composition, ModelUsage | None]: ...
-
-
 @dataclass
-class ModelDomainAgent:
+class ModelCapabilityAgent:
     gateway: Gateway
     profile: ModelProfile
     prompts: PromptStore = field(default_factory=PromptStore)
 
-    def compose(
+    def organize(
         self,
         *,
-        domain: DomainSpec,
-        goal: DomainGoal,
-        stage_inputs: dict[str, Any],
+        capability: CapabilitySpec,
+        request: str,
+        artifacts: list[dict[str, Any]],
+        context: dict[str, Any],
+        prior: list[dict[str, Any]],
         catalog_summary: dict[str, Any],
-    ) -> tuple[Composition, ModelUsage | None]:
-        artifact = self.prompts.load(goal.domain_id, domain.prompt_version)
+    ) -> tuple[Organization, ModelUsage | None]:
+        artifact = self.prompts.load(capability.id, capability.prompt_version)
         messages = render_prompt(
             artifact,
-            scope=domain.scope,
-            goal=goal.goal,
-            success_criterion=goal.success_criterion,
-            available_operators={
-                name: argument_summary(name) for name in sorted(domain.catalog)
-            },
-            available_config_groups=sorted(domain.config_groups),
-            catalog=catalog_summary,
-            stage_inputs=_for_prompt(stage_inputs),
+            standing_goal=capability.standing_goal,
+            request=request,
+            components=catalog_summary.get("components", {}),
+            config_groups=catalog_summary.get("config", {}),
+            artifacts_available=artifacts,
+            working_context=context,
+            previous_rounds=prior,
+            rounds_remaining=capability.max_rounds - len(prior),
+            publishes=list(capability.produces),
         )
-        draft, usage = self.gateway.complete(self.profile, messages, CompositionDraft)
-        return (
-            Composition(
-                domain_id=domain.id,
-                invocations=draft.invocations,
-                rationale=draft.rationale,
-            ),
-            usage,
-        )
-
-
-def _for_prompt(stage_inputs: dict[str, Any]) -> dict[str, Any]:
-    """Stage inputs as the model must see them.
-
-    A prompt *does* carry document content — reading an invoice is the entire point of
-    the field-resolution domain, and stripping the text would make the work impossible.
-    The redaction boundary is the telemetry channel, not this one: content stays in
-    process and in the prompt, and only digests are ever exported. See telemetry.py.
-
-    Runtime bookkeeping (leading underscore) is dropped because it is noise to a model,
-    not because it is sensitive.
-    """
-    return {key: value for key, value in stage_inputs.items() if not key.startswith("_")}
+        return self.gateway.complete(self.profile, messages, Organization)
 
 
 @dataclass
-class FakeDomainAgent:
-    """Scripted subagent so the suite runs offline.
+class FakeCapabilityAgent:
+    """Scripted agent for offline tests."""
 
-    Compositions are keyed by domain id, which lets a test drive two agents down
-    deliberately different routes and assert the plan is identical anyway.
-    """
-
-    compositions: dict[str, list[Composition]] = field(default_factory=dict)
+    plans: dict[str, list[Organization]] = field(default_factory=dict)
     calls: list[str] = field(default_factory=list)
 
-    def queue(self, domain_id: str, *values: Composition) -> FakeDomainAgent:
-        self.compositions.setdefault(domain_id, []).extend(values)
+    def queue(self, capability_id: str, *plans: Organization) -> FakeCapabilityAgent:
+        self.plans.setdefault(capability_id, []).extend(plans)
         return self
 
     @property
     def call_count(self) -> int:
         return len(self.calls)
 
-    def compose(
+    def organize(
         self,
         *,
-        domain: DomainSpec,
-        goal: DomainGoal,
-        stage_inputs: dict[str, Any],
+        capability: CapabilitySpec,
+        request: str,
+        artifacts: list[dict[str, Any]],
+        context: dict[str, Any],
+        prior: list[dict[str, Any]],
         catalog_summary: dict[str, Any],
-    ) -> tuple[Composition, ModelUsage | None]:
-        self.calls.append(domain.id)
-        queued = self.compositions.get(domain.id)
+    ) -> tuple[Organization, ModelUsage | None]:
+        self.calls.append(capability.id)
+        queued = self.plans.get(capability.id)
         if not queued:
-            raise KeyError(f"FakeDomainAgent has no queued composition for {domain.id}")
-        composition = queued.pop(0) if len(queued) > 1 else queued[0]
-        return composition.model_copy(update={"domain_id": domain.id}), None
+            raise KeyError(f"FakeCapabilityAgent has no organization for {capability.id}")
+        return (queued.pop(0) if len(queued) > 1 else queued[0]), None

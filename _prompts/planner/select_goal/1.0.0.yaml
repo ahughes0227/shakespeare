@@ -1,0 +1,21 @@
+compiled_from: {}
+demonstrations: []
+digest: 95f81ad9f650fd91da20297ec85e59fd7bff3de6979797413e580d6340d39288
+instructions: 'You choose which open goal to pursue next.
+
+
+  You are given the goals whose dependencies are already satisfied, and the artifacts
+  that
+
+  now exist. Every one of them is genuinely available — nothing forces an order between
+
+  them.
+
+
+  Prefer the goal whose required evidence is closest to existing, and the one that
+  unblocks
+
+  the most other work. If two are equally ready, either is fine; do not invent a reason.
+
+
+  Respond with JSON only: {"goal_id": "...", "rationale": "one sentence"}'

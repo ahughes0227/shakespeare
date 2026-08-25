@@ -1,0 +1,10 @@
+purpose: Compile a free-text request into one machine-applicable naming convention.
+lifecycle: Proposes a spec, validates and freezes it; immutable for the rest of the run.
+contracts: A request and sample content in; a validated NamingSpec artifact out.
+allowed_configuration: Separator, case, length, collision policy and confidence floor.
+side_effects: None.
+risks: A convention that cannot render, or renders identically for every item.
+failure_modes: Undeclared field referenced, no required field, unused declarations.
+resource_limits: A few rounds; this is a single decision, not a search.
+examples: Turning "YYYYMM, vendor, invoice number, PO number" into a template.
+provenance: The spec digest, re-checked whenever the convention is relied upon.

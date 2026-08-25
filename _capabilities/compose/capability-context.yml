@@ -1,0 +1,10 @@
+purpose: Turn rendered names into a balanced, collision-free change plan.
+lifecycle: Resolves collisions across the whole set, then assembles the plan once.
+contracts: ResolvedNames and a FileInventory in; a ChangePlan artifact out.
+allowed_configuration: Collision policy.
+side_effects: None. The runtime materialises staging once the plan is accepted.
+risks: Dropping an item, colliding targets, or admitting a hand-written filename.
+failure_modes: Unbalanced accounting, unresolved collision, missing quarantine reason.
+resource_limits: Short; assembly is pure computation over the whole set at once.
+examples: Suffixing two invoices that render to the same name in one folder.
+provenance: Component versions and the plan digest recorded in the audit log.

@@ -1,0 +1,10 @@
+id: compose
+version: "1.0.0"
+standing_goal: Resolve collisions and assemble a balanced change plan.
+catalog: [name.collide, plan.assemble]
+config_groups: [collision]
+produces: [ChangePlan]
+# How many times it may reorganise before giving up. This is where a capability
+# decides it has done part of the work and should carry on.
+max_rounds: 3
+prompt_version: "1.0.0"

@@ -1,8 +1,12 @@
-"""Load workflows and type-check their spines at registration.
+"""Workflows as goal graphs.
 
-A spine is programmer-authored, so its errors are build-time errors.  Checking contract
-compatibility, stage resolution, catalog membership and config groups here means a
-malformed workflow fails before a run starts rather than three stages in.
+A workflow is a predefined graph of goals and dependencies (§3). It defines what must
+become true, not the procedure for making it true, so registration validates the *shape*
+of the intent rather than the order of an execution path.
+
+Only causal dependencies belong here. If two goals can be pursued independently the graph
+must not force them into sequence, so nothing checks for a total order and none is
+implied.
 """
 
 from __future__ import annotations
@@ -12,12 +16,13 @@ from pathlib import Path
 
 import yaml
 
+from ..capabilities import CapabilityRegistry
 from ..compose import catalog as hydra_catalog
-from ..contracts import SemanticCard, StageSpec, WorkflowSpec, content_digest
+from ..contracts import Contract, SemanticCard, content_digest
+from ..goals import Goal, GoalGraph
 from ..operators.builtin import RUNTIME_ONLY
 from ..operators.planning import CHECKS
 from ..registry import OperatorRegistry
-from ..stages import StageRegistry
 
 WORKFLOW_ROOT = Path(__file__).resolve().parents[2] / "_workflows"
 
@@ -26,44 +31,40 @@ class WorkflowRegistryError(RuntimeError):
     pass
 
 
+class WorkflowSpec(Contract):
+    id: str
+    version: str
+    goals: tuple[Goal, ...]
+    #: The goal after which the irreversible commit runs.
+    commit_after: str
+    entry_contract: str = "RequestContract"
+
+    @property
+    def graph(self) -> GoalGraph:
+        return GoalGraph(goals=self.goals)
+
+
 @dataclass(frozen=True)
 class RegisteredWorkflow:
     spec: WorkflowSpec
     card: SemanticCard
-    stages: tuple[StageSpec, ...]
 
     def digest(self) -> str:
-        """Identity of everything that determines the run's behaviour.
-
-        Prompt versions are included, so promoting a compiled prompt changes the digest
-        and `replay` can never silently use a newer prompt than the run did.
-        """
-        # The models, not pre-dumped JSON: dumping first turns every frozenset into a
-        # list in hash order, and the normaliser can no longer tell it was a set.
-        return content_digest(
-            {
-                "workflow": self.spec,
-                "stages": list(self.stages),
-                "prompts": {
-                    f"{stage.name}.{domain.id}": domain.prompt_version
-                    for stage in self.stages
-                    for domain in stage.domains
-                },
-            }
-        )
+        """Identity of everything that determines behaviour: the goals and their gates."""
+        return content_digest({"workflow": self.spec})
 
 
 class WorkflowRegistry:
     def __init__(
         self,
         *,
-        stages: StageRegistry,
+        capabilities: CapabilityRegistry,
         operators: OperatorRegistry,
         root: Path | None = None,
         config_root: str | None = None,
     ) -> None:
         self.root = root or WORKFLOW_ROOT
-        self.stages = stages
+        self.capabilities = capabilities
         self.operators = operators
         self.config_root = config_root
         self._workflows: dict[str, RegisteredWorkflow] = {}
@@ -77,12 +78,11 @@ class WorkflowRegistry:
             spec = WorkflowSpec.model_validate(yaml.safe_load(manifest.read_text()) or {})
         except Exception as exc:
             raise WorkflowRegistryError(
-                f"{manifest} is not a usable workflow package ({type(exc).__name__}: {exc}). "
-                f"A freshly scaffolded workflow needs its TODOs filled in before it will load."
+                f"{manifest} is not a usable workflow ({type(exc).__name__}: {exc})"
             ) from exc
         if spec.id != directory.name:
             raise WorkflowRegistryError(
-                f"{manifest}: declares id {spec.id} but lives in {directory.name}"
+                f"{manifest}: declares {spec.id} but lives in {directory.name}"
             )
         card_path = directory / "workflow-context.yml"
         if not card_path.is_file():
@@ -98,66 +98,61 @@ class WorkflowRegistry:
     def register(self, spec: WorkflowSpec, card: SemanticCard) -> None:
         if spec.id in self._workflows:
             raise WorkflowRegistryError(f"workflow already registered: {spec.id}")
-        stages = self.type_check(spec)
-        self._workflows[spec.id] = RegisteredWorkflow(spec=spec, card=card, stages=stages)
+        self.validate(spec)
+        self._workflows[spec.id] = RegisteredWorkflow(spec=spec, card=card)
 
-    def type_check(self, spec: WorkflowSpec) -> tuple[StageSpec, ...]:
-        """Validate a spine end to end.  Raises on the first real problem."""
-        stages: list[StageSpec] = []
-        for ref in spec.spine:
-            if ref not in self.stages:
-                raise WorkflowRegistryError(
-                    f"{spec.id}: spine pins {ref}, which is not a registered stage"
-                )
-            stages.append(self.stages.get(ref))
+    def validate(self, spec: WorkflowSpec) -> None:
+        """Check the graph is coherent and answerable before a run starts."""
+        graph = spec.graph  # rejects cycles and unknown dependencies
 
-        expected = spec.entry_contract
-        for stage in stages:
-            if stage.input_contract != expected:
-                raise WorkflowRegistryError(
-                    f"{spec.id}: stage {stage.ref} expects {stage.input_contract!r} but the"
-                    f" previous stage produces {expected!r}"
-                )
-            expected = stage.output_contract
-
-        # A domain's prompt is resolved by its id, so two stages in one spine may not
-        # share a domain id or the pinned prompt would be ambiguous.
-        seen_domains: dict[str, str] = {}
-        for stage in stages:
-            for domain in stage.domains:
-                if domain.id in seen_domains:
-                    raise WorkflowRegistryError(
-                        f"{spec.id}: domain id {domain.id!r} appears in both"
-                        f" {seen_domains[domain.id]} and {stage.ref}; ids must be unique"
-                        f" within a spine so prompts resolve unambiguously"
-                    )
-                seen_domains[domain.id] = stage.ref
+        if spec.commit_after not in {goal.id for goal in spec.goals}:
+            raise WorkflowRegistryError(
+                f"{spec.id}: commit_after names a goal not in the graph: {spec.commit_after}"
+            )
 
         groups = hydra_catalog(self.config_root)
-        for stage in stages:
-            for obligation in stage.obligations:
-                if obligation not in CHECKS and obligation not in _known_checkers(stage):
+        for goal in graph.goals:
+            for name in goal.capabilities:
+                if name not in self.capabilities:
                     raise WorkflowRegistryError(
-                        f"{stage.ref}: obligation {obligation!r} has no deterministic checker"
+                        f"{spec.id}.{goal.id}: unknown capability {name!r}"
                     )
-            for domain in stage.domains:
-                for operator in sorted(domain.catalog):
-                    if operator not in self.operators:
+                capability = self.capabilities.get(name)
+                for component in sorted(capability.catalog):
+                    if component not in self.operators:
                         raise WorkflowRegistryError(
-                            f"{stage.ref}.{domain.id}: catalog names an unregistered"
-                            f" operator: {operator}"
+                            f"{name}: catalog names an unregistered component: {component}"
                         )
-                    if operator in RUNTIME_ONLY:
+                    if component in RUNTIME_ONLY:
                         raise WorkflowRegistryError(
-                            f"{stage.ref}.{domain.id}: {operator} writes and is reserved to"
-                            f" the runtime; a domain catalog must never contain it"
+                            f"{name}: {component} writes and is reserved to the runtime; "
+                            f"a capability catalog must never contain it"
                         )
-                for group in sorted(domain.config_groups):
+                for group in sorted(capability.config_groups):
                     if group not in groups:
                         raise WorkflowRegistryError(
-                            f"{stage.ref}.{domain.id}: unknown config group: {group}"
+                            f"{name}: unknown config group: {group}"
                         )
-        return tuple(stages)
+
+            for check in goal.gate.checks:
+                if check not in CHECKS:
+                    raise WorkflowRegistryError(
+                        f"{spec.id}.{goal.id}: gate names an unknown check: {check}"
+                    )
+
+            # A goal whose gate requires evidence nothing can produce is unsatisfiable,
+            # and the loop would spend its attempts discovering that at run time.
+            for kind in goal.gate.requires:
+                producers = {
+                    name
+                    for name in goal.capabilities
+                    if kind in self.capabilities.get(name).produces
+                }
+                if not producers:
+                    raise WorkflowRegistryError(
+                        f"{spec.id}.{goal.id}: requires artifact {kind!r} but none of its "
+                        f"capabilities {list(goal.capabilities)} produce it"
+                    )
 
     def get(self, workflow_id: str) -> RegisteredWorkflow:
         try:
@@ -174,13 +169,7 @@ class WorkflowRegistry:
         return workflow_id in self._workflows
 
     def routing_catalog(self) -> dict[str, dict[str, str]]:
-        """What the planner reads about workflows: the ten-field cards, nothing else."""
         return {
             workflow_id: registered.card.model_dump(mode="json")
             for workflow_id, registered in sorted(self._workflows.items())
         }
-
-
-def _known_checkers(stage: StageSpec) -> frozenset[str]:
-    """An obligation id may itself name a checker, which keeps simple stages terse."""
-    return frozenset(CHECKS)

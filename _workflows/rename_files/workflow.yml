@@ -1,14 +1,85 @@
 id: rename_files
-version: "1.4.0"
-# Each boundary exists because the previous stage's output must be interpreted or
-# verified by a model.  convention and resolve are separate stages for exactly that
-# reason: the frozen spec is a model output that a different model pass then applies.
-spine:
-  - intake@1.0.0
-  - extract@1.0.0
-  - convention@1.2.0
-  - resolve@1.2.0
-  - compose_changes@1.0.0
-  - review@1.0.0
-commit_after: review
+version: "2.0.0"
+# A graph of goals and the dependencies that actually matter — not a procedure. Each goal
+# states what must become true; which capability makes it true, and how, is decided at
+# run time.
+#
+# Note what is NOT a dependency: nothing forces the convention to be compiled after every
+# file has been read. It needs samples, not the whole set, so the two can overlap.
+commit_after: reviewed
 entry_contract: RequestContract
+goals:
+  - id: inventoried
+    label: intake
+    statement: Every file under the input root is inventoried, or recorded with a reason.
+    capabilities: [survey]
+    gate:
+      id: has_inventory
+      kind: deterministic
+      requires: [FileInventory]
+
+  - id: readable
+    label: extract
+    statement: Every inventoried file has usable text, or a recorded reason it has none.
+    depends_on: [inventoried]
+    capabilities: [acquire]
+    gate:
+      id: text_or_reason
+      kind: hybrid
+      requires: [ExtractedContent]
+      checks: [every_item_has_text_or_reason]
+      rubric: >
+        Would reading more of these files be likely to change the naming decision? If the
+        files still without text are ones no backend can read, the answer is no and the
+        evidence is sufficient.
+
+  - id: convention_frozen
+    label: convention
+    statement: One naming convention is compiled from the request and frozen.
+    depends_on: [inventoried]
+    capabilities: [convene]
+    gate:
+      id: spec_is_frozen
+      kind: deterministic
+      requires: [NamingSpec]
+      checks: [spec_frozen]
+
+  - id: named
+    label: resolve
+    statement: >
+      Every inventoried item has a rendered name from confident values, or a recorded
+      reason it could not be named.
+    depends_on: [readable, convention_frozen]
+    capabilities: [resolve]
+    gate:
+      id: all_accounted
+      kind: hybrid
+      requires: [ResolvedNames]
+      checks: [resolution_accounted]
+      rubric: >
+        Every item must be either named or quarantined with a reason. Partial coverage is
+        not sufficient: if items remain untouched, more work would change the outcome.
+
+  - id: planned
+    label: compose
+    statement: A balanced, collision-free change plan exists for every inventoried item.
+    depends_on: [named]
+    capabilities: [compose]
+    gate:
+      id: plan_is_sound
+      kind: deterministic
+      requires: [ChangePlan]
+      checks: [balanced, no_collisions, resolved_or_quarantined, rendered_mechanically]
+
+  - id: reviewed
+    label: review
+    statement: The staged tree matches the plan and its exceptions are visible.
+    depends_on: [planned]
+    capabilities: [review]
+    gate:
+      id: staging_verified
+      kind: hybrid
+      requires: [ReviewEvidence]
+      rubric: >
+        The staged tree must match the plan exactly. Judge whether the exceptions are
+        ones a person would expect given the inputs, or a sign something went wrong.

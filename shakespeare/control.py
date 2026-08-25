@@ -1,0 +1,245 @@
+"""The control loop (§19).
+
+    workflow goal
+        -> planner asks what it needs next and who can answer it
+        -> capability plans within its bounded domain
+        -> components execute deterministically
+        -> artifacts produced
+        -> gate evaluates goal satisfaction
+        -> satisfied ? advance : planner decides what is missing
+
+This replaces walking a fixed spine. The loop does not know it is in a stage called
+"extract"; it knows which goals remain open, what evidence exists, and which capabilities
+could produce what is missing.
+
+Everything transactional is unchanged: staging, balanced accounting, two-phase commit,
+journalled reversal, replay.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any
+from uuid import uuid4
+
+from .artifacts import ArtifactStore
+from .audit import AuditStore
+from .capabilities import CapabilityRegistry, CapabilityRunner, CapabilitySpec
+from .capabilities.runner import CapabilityOutcome
+from .contracts import (
+    ChangePlan,
+    ErrorCode,
+    RequestContract,
+    content_digest,
+    utc_now,
+)
+from .gating import GateEvaluator
+from .goals import GateResult, Goal, GoalGraph
+from .operators import mutation
+from .telemetry import Tracer
+from .verifier import Denial
+
+
+class ControlError(RuntimeError):
+    def __init__(self, message: str, code: ErrorCode) -> None:
+        super().__init__(message)
+        self.code = code
+
+
+@dataclass(frozen=True)
+class GoalAttempt:
+    goal_id: str
+    capability: str
+    outcome: CapabilityOutcome
+    gate: GateResult
+
+    @property
+    def satisfied(self) -> bool:
+        return self.gate.satisfied
+
+
+@dataclass
+class RunReport:
+    run_id: str
+    workflow_id: str
+    outcome: str
+    plan: ChangePlan | None = None
+    committed_to: str | None = None
+    attempts: tuple[GoalAttempt, ...] = ()
+    satisfied: frozenset[str] = frozenset()
+    error_code: ErrorCode | None = None
+    detail: str = ""
+    planned_output_root: str | None = None
+
+    @property
+    def committed(self) -> bool:
+        return self.outcome == "committed"
+
+
+@dataclass
+class Controller:
+    """The deterministic runtime (§10). It schedules; it does not reason."""
+
+    capabilities: CapabilityRegistry
+    runner: CapabilityRunner
+    artifacts: ArtifactStore
+    audit: AuditStore
+    planner: Any
+    workspace: Path
+    tracer: Tracer | None = None
+    #: How many times one goal may be attempted before the run gives up on it.
+    max_goal_attempts: int = 3
+    context: dict[str, Any] = field(default_factory=dict)
+
+    def pursue(
+        self,
+        *,
+        graph: GoalGraph,
+        request: RequestContract,
+        run_id: str,
+        budget_for: Any,
+    ) -> tuple[tuple[GoalAttempt, ...], frozenset[str], str | None]:
+        """Work open goals until none remain or one cannot be satisfied."""
+        evaluator = GateEvaluator(artifacts=self.artifacts, judge=self.planner)
+        satisfied: set[str] = set()
+        attempts: list[GoalAttempt] = []
+        tried: dict[str, int] = {}
+
+        while True:
+            open_goals = graph.open_goals(frozenset(satisfied))
+            if not open_goals:
+                blocked = graph.blocked_goals(frozenset(satisfied))
+                if blocked:
+                    return (
+                        tuple(attempts),
+                        frozenset(satisfied),
+                        f"goals remain blocked with nothing open: "
+                        f"{sorted(item.id for item in blocked)}",
+                    )
+                return tuple(attempts), frozenset(satisfied), None
+
+            goal = self._choose_goal(open_goals, graph)
+            tried[goal.id] = tried.get(goal.id, 0) + 1
+            if tried[goal.id] > self.max_goal_attempts:
+                return (
+                    tuple(attempts),
+                    frozenset(satisfied),
+                    f"goal {goal.id!r} could not be satisfied in "
+                    f"{self.max_goal_attempts} attempts",
+                )
+
+            capability = self._choose_capability(goal)
+            outcome = self.runner.run(
+                capability=capability,
+                request=goal.statement,
+                context=self.context,
+                budget=budget_for(goal, self.context),
+                workspace=self.workspace,
+                goal_id=goal.id,
+            )
+            self.context.update(outcome.context)
+
+            result = evaluator.evaluate(goal, self.context)
+            attempts.append(
+                GoalAttempt(
+                    goal_id=goal.id,
+                    capability=capability.id,
+                    outcome=outcome,
+                    gate=result,
+                )
+            )
+            if result.satisfied:
+                satisfied.add(goal.id)
+
+    # -- selection ---------------------------------------------------------------------
+
+    def _choose_goal(self, open_goals: tuple[Goal, ...], graph: GoalGraph) -> Goal:
+        """Which open goal to work next.
+
+        Deterministic when there is no real choice, which is most of the time. Asking a
+        model to pick between one option is the kind of semantic call §13 says to avoid.
+        """
+        if len(open_goals) == 1:
+            return open_goals[0]
+        chosen = self.planner.select_goal(open_goals, self.artifacts.describe())
+        return graph.goal(chosen)
+
+    def _choose_capability(self, goal: Goal) -> CapabilitySpec:
+        candidates = [
+            self.capabilities.get(name)
+            for name in goal.capabilities
+            if name in self.capabilities
+        ]
+        if not candidates:
+            raise ControlError(
+                f"goal {goal.id!r} names no registered capability",
+                ErrorCode.COMPOSITION_INVALID,
+            )
+        if len(candidates) == 1:
+            return candidates[0]
+        chosen = self.planner.select_capability(goal, [spec.id for spec in candidates])
+        for spec in candidates:
+            if spec.id == chosen:
+                return spec
+        return candidates[0]
+
+
+def commit_if_verified(
+    *,
+    plan: ChangePlan | None,
+    staging: Path,
+    output_root: Path,
+    audit: AuditStore,
+    run_id: str,
+) -> tuple[str, str]:
+    """Two-phase commit, unchanged by the convergence.
+
+    Returns (outcome, detail).
+    """
+    if plan is None:
+        return "aborted", "the workflow produced no change plan"
+
+    existing = audit.find_commit(plan_digest=plan.fingerprint(), output_root=str(output_root))
+    if existing is not None and output_root.exists():
+        mutation.discard(staging)
+        return "committed", f"already committed by run {existing['run_id']}; nothing to do"
+
+    report = mutation.verify_tree(plan=plan, staging_root=staging)
+    if not report["ok"]:
+        mutation.discard(staging)
+        return "aborted", f"staging does not match the plan: {report}"
+
+    staging_digest = content_digest(report)
+    record = mutation.commit(staging_root=staging, output_root=output_root)
+    audit.record_commit(
+        run_id=run_id, plan=plan, staging_digest=staging_digest, output_root=str(output_root)
+    )
+    audit.record_mutation(
+        run_id=run_id,
+        target_ref=str(output_root),
+        operation="commit",
+        reversal=record,
+        after_digest=staging_digest,
+    )
+    return "committed", ""
+
+
+def new_run_id() -> str:
+    return uuid4().hex
+
+
+def started_at() -> str:
+    return utc_now().isoformat()
+
+
+__all__ = [
+    "Controller",
+    "ControlError",
+    "Denial",
+    "GoalAttempt",
+    "RunReport",
+    "commit_if_verified",
+    "new_run_id",
+    "started_at",
+]

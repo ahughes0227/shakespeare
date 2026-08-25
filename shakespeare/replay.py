@@ -14,12 +14,9 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-from .agent import DomainAgent
 from .audit import AuditStore
 from .contracts import (
     Composition,
-    DomainGoal,
-    DomainSpec,
     ObligationResult,
     RequestContract,
     RouteDecision,
@@ -117,34 +114,54 @@ class JournalPlanner:
 
 @dataclass
 class JournalAgent:
-    """Replays a domain's recorded composition.  Makes no model call, ever."""
+    """Replays a capability's recorded organization. Makes no model call, ever."""
 
     recorded: _Recorded
-    stage_of: dict[str, str]
+    #: capability id -> the goal attempts it was recorded under, in order.
+    _cursor: dict[str, int] = field(default_factory=dict)
 
-    def compose(
+    def organize(
         self,
         *,
-        domain: DomainSpec,
-        goal: DomainGoal,
-        stage_inputs: dict[str, Any],
+        capability: Any,
+        request: str,
+        artifacts: list[dict[str, Any]],
+        context: dict[str, Any],
+        prior: list[dict[str, Any]],
         catalog_summary: dict[str, Any],
-    ) -> tuple[Composition, ModelUsage | None]:
-        stage = self.stage_of.get(domain.id)
-        if stage is None:
-            raise ReplayError(f"domain {domain.id} belongs to no stage in this workflow")
-        payload = self.recorded.peek(stage)["compositions"].get(domain.id)
-        if payload is None:
+    ) -> tuple[Any, ModelUsage | None]:
+        from .capabilities.runner import Organization
+
+        rounds = [
+            payload
+            for attempt in self.recorded.attempts
+            for domain_id, payload in attempt["compositions"].items()
+            if domain_id == capability.id
+        ]
+        index = self._cursor.get(capability.id, 0)
+        if index >= len(rounds):
             raise ReplayError(
-                f"no composition was recorded for {stage}.{domain.id}; "
-                f"the stage package has changed since this run"
+                f"the journal records {len(rounds)} round(s) for capability "
+                f"{capability.id!r}, but replay asked for another. The workflow has "
+                f"changed since this run."
             )
-        return Composition.model_validate(payload), None
+        self._cursor[capability.id] = index + 1
+        composition = Composition.model_validate(rounds[index])
+        return (
+            Organization(
+                invocations=composition.invocations,
+                intent=composition.rationale,
+                # The recorded run stopped where it stopped; the last round is the one
+                # that finished it.
+                sufficient=index + 1 >= len(rounds),
+            ),
+            None,
+        )
 
 
 def journal_components(
-    audit: AuditStore, run_id: str, *, stage_of: dict[str, str]
-) -> tuple[JournalPlanner, dict[str, DomainAgent], str, str]:
+    audit: AuditStore, run_id: str, *, stage_of: dict[str, str] | None = None
+) -> tuple[JournalPlanner, dict[str, Any], str, str]:
     """Build the replay planner and agents for a recorded run."""
     source = audit.replay_source(run_id)
     recorded = _Recorded(
@@ -156,7 +173,7 @@ def journal_components(
         raise ReplayError(f"run {run_id} recorded no stage attempts to replay")
 
     planner = JournalPlanner(recorded)
-    agent = JournalAgent(recorded, stage_of)
+    agent = JournalAgent(recorded)
     return planner, {"*": agent}, source["workflow_id"], source["workflow_digest"]
 
 
