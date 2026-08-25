@@ -168,6 +168,18 @@ def _apply_case(text: str, policy: CasePolicy) -> str:
     return text
 
 
+def _normalise_extension(extension: str) -> str:
+    """Accept "pdf" as well as ".pdf".
+
+    A live model supplied the suffix without its dot and produced `...po-88120pdf`. The
+    extension carries the file type, so getting it wrong changes what the file *is* —
+    worth being forgiving about rather than strict.
+    """
+    if not extension:
+        return ""
+    return extension if extension.startswith(".") else f".{extension}"
+
+
 def _clamp(stem: str, extension: str, max_length: int) -> str:
     budget = max_length - len(extension)
     if budget <= 0:
@@ -261,6 +273,7 @@ def render(
         return RenderResult(item_id=item_id, rendered=None, reason="rendered_empty")
     if stem.split(".")[0].upper() in _RESERVED:
         stem = f"{policy.replacement}{stem}"
+    extension = _normalise_extension(extension)
     stem = _clamp(stem, extension, policy.max_length)
     if not stem:
         return RenderResult(item_id=item_id, rendered=None, reason="rendered_empty")

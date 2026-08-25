@@ -335,3 +335,45 @@ class TestDateTolerance:
         assert result.rendered is None
         assert result.reason is not None
         assert "expected an ISO date" in result.reason
+
+
+class TestExtensionTolerance:
+    """The extension carries the file type, so a missing dot changes what the file is.
+
+    A live model supplied "pdf" rather than ".pdf" and produced `...po-88120pdf`.
+    """
+
+    def _render(self, extension: str):
+        return render(
+            item_id="1",
+            template="{vendor}",
+            fields=(FieldDecl(name="vendor"),),
+            values={"vendor": "ACME"},
+            policy=NamePolicy(),
+            extension=extension,
+        )
+
+    def test_a_dotted_extension_is_unchanged(self) -> None:
+        assert self._render(".pdf").rendered == "ACME.pdf"
+
+    def test_a_bare_extension_gains_its_dot(self) -> None:
+        assert self._render("pdf").rendered == "ACME.pdf"
+
+    def test_no_extension_stays_absent(self) -> None:
+        assert self._render("").rendered == "ACME"
+
+    def test_case_is_preserved_either_way(self) -> None:
+        assert self._render("PDF").rendered == "ACME.PDF"
+
+    def test_a_clamped_name_still_keeps_the_dot(self) -> None:
+        result = render(
+            item_id="1",
+            template="{vendor}",
+            fields=(FieldDecl(name="vendor"),),
+            values={"vendor": "V" * 300},
+            policy=NamePolicy(max_length=32),
+            extension="pdf",
+        )
+        assert result.rendered is not None
+        assert result.rendered.endswith(".pdf")
+        assert len(result.rendered) <= 32
