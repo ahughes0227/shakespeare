@@ -87,7 +87,7 @@ class TestInspection:
         code, output = invoke("prompts", "list")
         assert code == 0
         assert "convention_design" in output
-        assert "convention @ 1.1.0" in output
+        assert "convention @ 1.2.0" in output
 
 
 class TestRequests:

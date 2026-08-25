@@ -244,12 +244,36 @@ def _freeze_spec(arguments: dict[str, Any], workspace: Path) -> dict[str, Any]:
             raise RunnerError(
                 f"the naming spec carries keys it does not support: {extras}. "
                 f"A spec holds only template, fields, policy, collision_policy and "
-                f"confidence_floor; each field holds only name, kind, format, required "
-                f"and confidence_floor. Put nothing else in it."
+                f"confidence_floor; each field holds only name, kind, format, required, "
+                f"confidence_floor and max_length. Put nothing else in it."
             ) from exc
-        raise RunnerError(f"the naming spec is invalid: {exc}") from exc
+        # Name the field and the shape it wants. A raw pydantic dump tells a model that
+        # something is wrong without telling it what to write instead.
+        problems = [
+            f"{'.'.join(str(part) for part in item['loc'])}: {item['msg']}"
+            f"{_shape_hint('.'.join(str(part) for part in item['loc']))}"
+            for item in exc.errors()[:6]
+        ]
+        raise RunnerError("the naming spec is invalid - " + "; ".join(problems)) from exc
     spec, digest = naming.freeze_spec(parsed)
     return {"spec": spec.model_dump(mode="json"), "digest": digest}
+
+
+#: Shapes a model has actually got wrong, and what to write instead.
+_SPEC_SHAPES: dict[str, str] = {
+    "policy.max_length": (
+        " (a single whole-filename cap, e.g. 200. For a per-field cap put max_length on "
+        "the field itself)"
+    ),
+    "policy.replacement": " (a single character, e.g. \"-\")",
+    "policy.separator": " (a string placed between fields, e.g. \", \")",
+    "policy.case": " (one of preserve, lower, upper, title)",
+    "policy.aliases": " (a flat mapping of name to name)",
+}
+
+
+def _shape_hint(location: str) -> str:
+    return _SPEC_SHAPES.get(location, "")
 
 
 def _plan_assemble(arguments: dict[str, Any], workspace: Path) -> dict[str, Any]:

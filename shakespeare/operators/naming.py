@@ -56,6 +56,9 @@ class FieldDecl(Contract):
     format: str | None = None
     required: bool = True
     confidence_floor: float = Field(default=0.7, ge=0, le=1)
+    #: Cap this field's own value. A long vendor name should lose its own tail rather
+    #: than push the invoice number off the end of the filename.
+    max_length: int | None = Field(default=None, ge=1, le=255)
 
 
 class NamePolicy(Contract):
@@ -260,7 +263,10 @@ def render(
                 item_id=item_id, rendered=None, reason=f"unformattable_field:{name}:{exc}"
             )
         formatted = policy.aliases.get(formatted, formatted)
-        resolved[name] = sanitize(formatted, policy)
+        formatted = sanitize(formatted, policy)
+        if decl.max_length is not None and len(formatted) > decl.max_length:
+            formatted = formatted[: decl.max_length].rstrip(" .-_")
+        resolved[name] = formatted
 
     def substitute(match: re.Match[str]) -> str:
         return resolved[match.group(1)]

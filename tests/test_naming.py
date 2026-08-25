@@ -377,3 +377,48 @@ class TestExtensionTolerance:
         assert result.rendered is not None
         assert result.rendered.endswith(".pdf")
         assert len(result.rendered) <= 32
+
+
+class TestPerFieldCap:
+    """A long vendor name should lose its own tail, not push the invoice number off.
+
+    A live model reached for per-field caps twice, writing them into policy.max_length
+    where only a whole-name cap belongs.
+    """
+
+    def _render(self, cap: int | None):
+        return render(
+            item_id="1",
+            template="{vendor}, {invoice_number}",
+            fields=(
+                FieldDecl(name="vendor", max_length=cap),
+                FieldDecl(name="invoice_number"),
+            ),
+            values={"vendor": "Northwind Traders Limited", "invoice_number": "INV-4471"},
+            policy=NamePolicy(),
+            extension=".pdf",
+        )
+
+    def test_a_capped_field_is_truncated(self) -> None:
+        assert self._render(8).rendered == "Northwin, INV-4471.pdf"
+
+    def test_the_other_fields_survive_intact(self) -> None:
+        assert self._render(8).rendered is not None
+        assert "INV-4471" in self._render(8).rendered
+
+    def test_no_cap_leaves_the_value_whole(self) -> None:
+        assert self._render(None).rendered == "Northwind Traders Limited, INV-4471.pdf"
+
+    def test_a_cap_longer_than_the_value_changes_nothing(self) -> None:
+        assert self._render(100).rendered == "Northwind Traders Limited, INV-4471.pdf"
+
+    def test_truncation_does_not_leave_trailing_punctuation(self) -> None:
+        result = render(
+            item_id="1",
+            template="{vendor}",
+            fields=(FieldDecl(name="vendor", max_length=10),),
+            values={"vendor": "Acme Ltd - Northern"},
+            policy=NamePolicy(),
+            extension=".pdf",
+        )
+        assert result.rendered == "Acme Ltd.pdf"
