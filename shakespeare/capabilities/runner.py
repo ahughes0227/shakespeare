@@ -72,8 +72,12 @@ class Organization(Contract):
         it, and `publishes` given as a one-element list is the same choice written as the
         options it was offered. Neither is worth losing a round over.
         """
-        if isinstance(value, dict) and "organization" in value and "invocations" not in value:
-            value = value["organization"]
+        if isinstance(value, dict) and "organization" in value:
+            # Either the whole answer is wrapped, or a commentary block sits beside it.
+            inner = value["organization"]
+            value = inner if "invocations" not in value else {
+                k: v for k, v in value.items() if k != "organization"
+            }
         if isinstance(value, dict) and isinstance(value.get("publishes"), (list, tuple)):
             published = value["publishes"]
             value = {**value, "publishes": published[0] if published else None}
@@ -255,6 +259,7 @@ class CapabilityRunner:
             for item in results:
                 if item.output:
                     working.update(item.output)
+            _record_progress(working)
 
             rounds.append(Round(number=number, organization=organization, results=results,
                                 denial=denial))
@@ -347,6 +352,27 @@ def _catalog_summary(capability: CapabilitySpec, config_root: str | None) -> dic
             if group in available
         },
     }
+
+
+#: Output keys whose entries carry an item_id, and therefore count as work completed.
+_PROGRESS_KEYS: tuple[str, ...] = ("candidates", "unrendered", "extractions", "results")
+
+
+def _record_progress(working: dict[str, Any]) -> None:
+    """Accumulate the item ids earlier rounds have already dealt with.
+
+    Kept under a reserved key so it reaches every invocation without the capability
+    having to thread it, and stays out of prompts.
+    """
+    seen: list[str] = list(working.get("_completed") or [])
+    known = set(seen)
+    for key in _PROGRESS_KEYS:
+        for item in working.get(key) or []:
+            if isinstance(item, dict) and (item_id := item.get("item_id")) not in known:
+                if item_id is not None:
+                    seen.append(str(item_id))
+                    known.add(item_id)
+    working["_completed"] = seen
 
 
 def _summarise(working: dict[str, Any]) -> dict[str, Any]:

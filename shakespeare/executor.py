@@ -209,6 +209,14 @@ class Executor:
             # Which keys the agent wrote itself, as opposed to values that flowed from a
             # prior operator.  Lets an operator refuse a hand-written value.
             "_agent_supplied": sorted(invocation.parameters),
+            # Runtime bookkeeping, always available. A capability should not have to
+            # thread its own progress through every invocation to make scheduling work,
+            # and a live model reliably did not — so the same window was taken forever.
+            **{
+                key: item
+                for key, item in stage_inputs.items()
+                if key.startswith("_") and key != "_agent_supplied"
+            },
         }
         for reference in invocation.inputs:
             # Two rules, deliberately different.  A prior invocation's output *splats*, so

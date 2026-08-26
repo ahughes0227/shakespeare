@@ -257,8 +257,15 @@ class Invocation(Contract):
         clear intention. Refusing it would waste an attempt on a naming confusion rather
         than on anything about the work.
         """
+        if isinstance(value, dict) and "organization" in value and "invocations" in value:
+            # Both shapes at once: the answer at the top level and a commentary block
+            # beside it. Take the answer.
+            value = {k: v for k, v in value.items() if k != "organization"}
         if isinstance(value, dict) and isinstance(value.get("inputs"), dict):
             supplied = dict(value["inputs"])
+            if not supplied:
+                value = {**value, "inputs": ()}
+                return value
             # Only coerce what is unambiguously a reference. Anything else is left for
             # normal validation, which explains the problem rather than crashing on it.
             references = {

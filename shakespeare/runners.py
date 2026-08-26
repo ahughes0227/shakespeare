@@ -310,7 +310,9 @@ def _plan_assemble(arguments: dict[str, Any], workspace: Path) -> dict[str, Any]
 def _next_window(arguments: dict[str, Any], workspace: Path) -> dict[str, Any]:
     return planning.next_window(
         items=tuple(arguments.get("items") or arguments.get("scanned") or ()),
-        completed=tuple(arguments.get("completed") or ()),
+        # The agent may thread progress explicitly; if it does not, the runtime's own
+        # record of what earlier rounds produced is used instead.
+        completed=tuple(arguments.get("completed") or arguments.get("_completed") or ()),
         window_size=int(_cfg(arguments, "schedule", "window_size", 20)),
     )
 
