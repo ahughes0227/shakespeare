@@ -152,6 +152,10 @@ class CapabilityOutcome:
     artifacts: tuple[Artifact, ...]
     context: dict[str, Any]
     exhausted: bool = False
+    #: The runtime's own scheduling calls, so the journal records why a capability was
+    #: asked what it was asked. Without them the audit log shows the batches but not the
+    #: decision that produced them.
+    scheduling: tuple[tuple[Composition, tuple[InvocationResult, ...]], ...] = ()
 
     @property
     def sufficient(self) -> bool:
@@ -188,6 +192,7 @@ class CapabilityRunner:
         workspace: Path,
         budget: Budget,
         goal_id: str,
+        journal: list[tuple[Composition, tuple[InvocationResult, ...]]] | None = None,
     ) -> dict[str, Any]:
         """Size the next batch, given what the earlier ones actually cost.
 
@@ -196,23 +201,24 @@ class CapabilityRunner:
         still an operator, so the decision is verified, journalled and traced like any
         other — and no capability lists it, so none can schedule itself.
         """
-        outcome = self.executor.execute(
-            Composition(
-                domain_id=capability.id,
-                invocations=(
-                    Invocation(
-                        invocation_id="schedule",
-                        operator="schedule.plan",
-                        parameters={
-                            "remaining": remaining,
-                            "capacity": self.capacity,
-                            "cost_per_item": capability.cost_per_item,
-                            "observations": observations,
-                        },
-                    ),
+        composition = Composition(
+            domain_id=capability.id,
+            invocations=(
+                Invocation(
+                    invocation_id="schedule",
+                    operator="schedule.plan",
+                    parameters={
+                        "remaining": remaining,
+                        "capacity": self.capacity,
+                        "cost_per_item": capability.cost_per_item,
+                        "observations": observations,
+                    },
                 ),
-                rationale="size the next batch to fit one response",
             ),
+            rationale="size the next batch to fit one response",
+        )
+        outcome = self.executor.execute(
+            composition,
             _scheduling_domain(capability),
             stage_inputs={},
             config={},
@@ -220,6 +226,8 @@ class CapabilityRunner:
             budget=budget,
             stage=goal_id,
         )
+        if journal is not None:
+            journal.append((composition, tuple(outcome)))
         planned = outcome[0].output if outcome and outcome[0].output else None
         if not planned:
             # Scheduling itself failed. Handing the whole set over is the honest
@@ -242,6 +250,8 @@ class CapabilityRunner:
         rounds: list[Round] = []
         produced: list[Artifact] = []
 
+        scheduling: list[tuple[Composition, tuple[InvocationResult, ...]]] = []
+
         def outcome(*, exhausted: bool) -> CapabilityOutcome:
             return CapabilityOutcome(
                 capability=capability.id,
@@ -249,27 +259,30 @@ class CapabilityRunner:
                 artifacts=tuple(produced),
                 context=working,
                 exhausted=exhausted,
+                scheduling=tuple(scheduling),
             )
 
         divisible = working.get(capability.divides)
         if capability.cost_per_item is None or not isinstance(divisible, list) or not divisible:
             # Nothing measurable to divide — collision resolution and plan assembly need
             # the whole set at once, and say so by declaring no per-item cost.
-            whole = self._pursue_batch(
+            undivided = self._pursue_batch(
                 capability=capability, request=request, working=working, rounds=rounds,
                 produced=produced, budget=budget, workspace=workspace, goal_id=goal_id,
                 agent=agent,
             )
-            return outcome(exhausted=not whole.finished)
+            return outcome(exhausted=not undivided.finished)
 
-        remaining: list[Any] = list(divisible)
+        whole: list[Any] = list(divisible)
+        remaining: list[Any] = list(whole)
         observations: list[dict[str, Any]] = []
+        accumulated: dict[str, list[Any]] = {}
         number = 0
         attempts = 0
         while remaining:
             plan = self._plan_batch(
                 capability, remaining, observations,
-                workspace=workspace, budget=budget, goal_id=goal_id,
+                workspace=workspace, budget=budget, goal_id=goal_id, journal=scheduling,
             )
             batch = plan["batch"]
             number += 1
@@ -284,6 +297,7 @@ class CapabilityRunner:
                 produced=produced, budget=budget, workspace=workspace, goal_id=goal_id,
                 agent=agent,
             )
+            _accumulate(working, accumulated, exclude=capability.divides)
             observations.append(
                 {
                     "items": len(batch),
@@ -301,8 +315,10 @@ class CapabilityRunner:
             # will make the next plan smaller, so the same items are worth another go.
             attempts += 1
             if not spent.truncated or len(batch) <= 1 or attempts >= self.max_resize_attempts:
+                working[capability.divides] = whole
                 return outcome(exhausted=True)
 
+        working[capability.divides] = whole
         return outcome(exhausted=False)
 
     def _pursue_batch(
@@ -516,6 +532,28 @@ def _catalog_summary(capability: CapabilitySpec, config_root: str | None) -> dic
 
 #: Output keys whose entries carry an item_id, and therefore count as work completed.
 _PROGRESS_KEYS: tuple[str, ...] = ("candidates", "unrendered", "extractions", "results")
+
+
+def _accumulate(
+    working: dict[str, Any], accumulated: dict[str, list[Any]], *, exclude: str
+) -> None:
+    """Carry per-item results across batches instead of letting each one replace the last.
+
+    An operator's output replaces the key it writes, which is right within a batch and
+    wrong across them: the second batch's extractions would erase the first's, and the
+    gate would then be told thirty of sixty files were the whole world. Anything keyed by
+    item_id is merged by item instead, so what a capability accumulates survives being
+    asked in pieces.
+    """
+    for key, value in list(working.items()):
+        if key.startswith("_") or key == exclude or not isinstance(value, list) or not value:
+            continue
+        if not all(isinstance(row, dict) and "item_id" in row for row in value):
+            continue
+        merged = {row["item_id"]: row for row in accumulated.get(key, [])}
+        merged.update({row["item_id"]: row for row in value})
+        accumulated[key] = list(merged.values())
+        working[key] = accumulated[key]
 
 
 def _record_progress(working: dict[str, Any]) -> None:

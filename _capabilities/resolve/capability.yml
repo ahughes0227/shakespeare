@@ -10,4 +10,4 @@ max_rounds: 3
 # Measured, not guessed: this is what one item costs in output tokens.
 cost_per_item: 674
 divides: items
-prompt_version: "1.1.0"
+prompt_version: "1.2.0"

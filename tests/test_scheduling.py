@@ -368,3 +368,133 @@ class TestContainment:
             if registry.get(capability_id).cost_per_item is not None
         }
         assert divisible == {"acquire", "resolve"}
+
+
+class TestBatchingIsInvisibleDownstream:
+    """A capability may be asked in pieces; nothing after it should be able to tell.
+
+    Both of these were live-run failures. The gate was handed the last batch as though it
+    were the whole inventory and accepted "30 of 30" for a sixty-file run, and the second
+    batch's extractions silently replaced the first's.
+    """
+
+    def _runner(self, tmp_path: Path, agent):
+        operators = build_registry()
+        return CapabilityRunner(
+            executor=Executor(operators, Verifier(operators)),
+            agents={"*": agent},
+            artifacts=ArtifactStore(root=tmp_path / "artifacts", run_id="r"),
+            capacity=16384,
+        )
+
+    class _Extractor:
+        """Writes a per-item result for exactly the items it was handed."""
+
+        def organize(self, *, capability, request, artifacts, context, prior, catalog_summary):
+            return (
+                Organization(
+                    invocations=(
+                        Invocation(
+                            invocation_id="n",
+                            operator="text.normalize",
+                            parameters={"values": {"v": "x"}},
+                        ),
+                    ),
+                    intent="extract this batch",
+                    sufficient=True,
+                    publishes="ExtractedContent",
+                ),
+                None,
+            )
+
+    def _run(self, tmp_path: Path, agent, count: int):
+        return self._runner(tmp_path, agent).run(
+            capability=DIVISIBLE,
+            request="extract them",
+            context={"items": items(count)},
+            budget=Budget(envelope=BudgetEnvelope(operator_calls="400"), items=count),
+            workspace=tmp_path / "work",
+        )
+
+    def test_the_whole_set_is_restored_when_the_work_is_done(self, tmp_path: Path) -> None:
+        """Otherwise the gate judges the last batch and calls it the inventory."""
+        outcome = self._run(tmp_path, self._Extractor(), 60)
+        assert len(outcome.context["items"]) == 60
+
+    def test_the_whole_set_is_restored_even_when_it_fails(self, tmp_path: Path) -> None:
+        class Refusing:
+            def organize(self, *, capability, request, artifacts, context, prior, catalog_summary):
+                return (
+                    Organization(
+                        invocations=(
+                            Invocation(
+                                invocation_id="n", operator="fs.commit", parameters={}
+                            ),
+                        ),
+                        intent="reach outside",
+                        sufficient=False,
+                    ),
+                    None,
+                )
+
+        outcome = self._run(tmp_path, Refusing(), 60)
+        assert outcome.exhausted
+        assert len(outcome.context["items"]) == 60
+
+    def test_per_item_results_accumulate_across_batches(self, tmp_path: Path) -> None:
+        """An operator's output replaces its key, which across batches erases the last."""
+
+        class PerItem:
+            def organize(self, *, capability, request, artifacts, context, prior, catalog_summary):
+                return (
+                    Organization(
+                        invocations=(
+                            Invocation(
+                                invocation_id="n",
+                                operator="text.normalize",
+                                parameters={"values": {"v": "x"}},
+                            ),
+                        ),
+                        intent="extract",
+                        sufficient=True,
+                        publishes="ExtractedContent",
+                    ),
+                    None,
+                )
+
+        runner = self._runner(tmp_path, PerItem())
+        # Stand in for an operator that reports one row per item of the batch it saw.
+        original = runner.executor.execute
+
+        def execute(composition, domain, **kwargs):
+            results = original(composition, domain, **kwargs)
+            batch = kwargs["stage_inputs"].get("items") or []
+            scheduling = composition.invocations[0].operator == "schedule.plan"
+            for item in results:
+                if item.output is not None and not scheduling:
+                    item.output["extractions"] = [
+                        {"item_id": row["item_id"], "text": "x"} for row in batch
+                    ]
+            return results
+
+        runner.executor.execute = execute  # type: ignore[method-assign]
+        outcome = runner.run(
+            capability=DIVISIBLE,
+            request="extract them",
+            context={"items": items(60)},
+            budget=Budget(envelope=BudgetEnvelope(operator_calls="400"), items=60),
+            workspace=tmp_path / "work",
+        )
+        extracted = {row["item_id"] for row in outcome.context["extractions"]}
+        assert extracted == {row["item_id"] for row in items(60)}
+
+    def test_the_scheduling_decision_is_journalled(self, tmp_path: Path) -> None:
+        """The audit log must show why a capability was asked what it was asked."""
+        outcome = self._run(tmp_path, self._Extractor(), 60)
+        assert outcome.scheduling
+        operators = {
+            invocation.operator
+            for composition, _ in outcome.scheduling
+            for invocation in composition.invocations
+        }
+        assert operators == {"schedule.plan"}

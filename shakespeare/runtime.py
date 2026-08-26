@@ -403,7 +403,13 @@ class Runtime:
 
         for index, attempt in enumerate(attempts, start=1):
             goal = workflow.spec.graph.goal(attempt.goal_id)
+            # The runtime's own scheduling calls come first: they are why the capability
+            # was asked what it was asked, and without them the journal shows the
+            # batches but not the decision that produced them.
             compositions = [
+                (composition, [item.journal_row() for item in results])
+                for composition, results in attempt.outcome.scheduling
+            ] + [
                 (
                     Composition(
                         domain_id=attempt.capability,
