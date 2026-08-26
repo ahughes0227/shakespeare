@@ -168,6 +168,16 @@ def _render_template(arguments: dict[str, Any], workspace: Path) -> dict[str, An
         for index, item in enumerate(items)
     ]
     directories = {item["item_id"]: item.get("directory", "") for item in items}
+    claimed = {item["item_id"]: item for item in items}
+    results = [
+        item.model_copy(
+            update={
+                "values": claimed.get(item.item_id, {}).get("values") or {},
+                "confidences": claimed.get(item.item_id, {}).get("confidences") or {},
+            }
+        )
+        for item in results
+    ]
     return {
         "results": [item.model_dump(mode="json") for item in results],
         # Shaped for name.collide, so a composition can bind one straight into the other.

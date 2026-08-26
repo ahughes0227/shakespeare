@@ -182,6 +182,113 @@ def plan_only(
 
 
 @app.command()
+def calibrate(
+    prompt: Annotated[str, typer.Option("--prompt", "-p")],
+    input_root: Annotated[Path, typer.Option("--input", "-i", exists=True, file_okay=False)],
+    truth: Annotated[
+        Path,
+        typer.Option(
+            "--truth",
+            exists=True,
+            dir_okay=False,
+            help="JSON or YAML mapping each input relpath to its true field values.",
+        ),
+    ],
+    precision: Annotated[
+        float, typer.Option("--precision", min=0.0, max=1.0, help="Accuracy a floor must reach.")
+    ] = 0.99,
+    state_root: Annotated[Path | None, typer.Option("--state", hidden=True)] = None,
+) -> None:
+    """Measure what a reported confidence has actually been worth.
+
+    Plans without touching the filesystem, then compares every field the run claimed
+    against what is true. The floor it suggests is the lowest one the evidence supports:
+    every point above that quarantines files a person then renames by hand.
+    """
+    import yaml
+
+    from . import calibration
+
+    expected = (
+        json.loads(truth.read_text())
+        if truth.suffix == ".json"
+        else yaml.safe_load(truth.read_text())
+    )
+    services = _services(state_root)
+    result = services.runtime.run(
+        RequestContract(
+            request_id=uuid4().hex,
+            prompt=prompt,
+            input_root=str(input_root.resolve()),
+            output_root=str(input_root.parent / "calibration-not-written"),
+        ),
+        commit=False,
+    )
+    rows = _claims_of(result)
+    if not rows:
+        _fail("the run reported no field values, so there is nothing to measure")
+    report = calibration.report(calibration.observe(rows, expected), targets=(precision,))
+    _render_calibration(report, precision)
+
+
+def _claims_of(result: object) -> list[dict[str, object]]:
+    """Every rendered item's claimed values, keyed by the relpath the truth file uses."""
+    context: dict[str, Any] = {}
+    for attempt in getattr(result, "attempts", ()):
+        context.update(attempt.outcome.context)
+    relpath = {
+        item["item_id"]: item["relpath"]
+        for item in context.get("items") or []
+        if isinstance(item, dict) and "relpath" in item
+    }
+    return [
+        {**row, "relpath": relpath.get(row.get("item_id"), "")}
+        for row in context.get("results") or []
+        if isinstance(row, dict)
+    ]
+
+
+def _render_calibration(report: object, precision: float) -> None:
+    from rich.table import Table
+
+    bands = Table(title="Reported confidence against what was true")
+    for column in ("band", "claims", "claimed", "observed", "gap"):
+        bands.add_column(column, justify="right" if column != "band" else "left")
+    for band in report.bands:  # type: ignore[attr-defined]
+        bands.add_row(
+            f"{band.lower:.1f}–{band.upper:.1f}",
+            str(band.count),
+            f"{band.claimed:.2f}",
+            f"{band.observed:.2f}",
+            f"{band.gap:+.2f}",
+        )
+    console.print(bands)
+
+    per_field = Table(title="Accuracy by field")
+    per_field.add_column("field")
+    per_field.add_column("claims", justify="right")
+    per_field.add_column("correct", justify="right")
+    for name, (count, accuracy) in report.fields.items():  # type: ignore[attr-defined]
+        per_field.add_row(name, str(count), f"{accuracy:.1%}")
+    console.print(per_field)
+
+    floor = next(iter(report.floors.values()))  # type: ignore[attr-defined]
+    console.print(
+        f"[bold]{report.observations}[/bold] claims · "  # type: ignore[attr-defined]
+        f"Brier [bold]{report.brier:.4f}[/bold] · "  # type: ignore[attr-defined]
+        f"mean error [bold]{report.expected_error:.3f}[/bold] · "  # type: ignore[attr-defined]
+        f"{'overconfident' if report.overconfident else 'not overconfident'}"  # type: ignore[attr-defined]
+    )
+    if floor is None:
+        console.print(
+            f"[yellow]No floor reaches {precision:.0%} on this evidence — the claims do "
+            f"not separate right from wrong.[/yellow]"
+        )
+    else:
+        console.print(f"Lowest floor reaching {precision:.0%} accuracy: [bold]{floor}[/bold]")
+
+
+@app.command()
 def apply(
     plan_path: Annotated[Path, typer.Option("--plan", exists=True, dir_okay=False)],
     input_root: Annotated[Path, typer.Option("--input", "-i", exists=True, file_okay=False)],

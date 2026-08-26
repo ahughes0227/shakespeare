@@ -93,6 +93,11 @@ class RenderResult(Contract):
     item_id: str
     rendered: str | None
     reason: str | None = None
+    #: What was claimed for this item, recorded rather than used. The floor has been
+    #: enforced since it was written and never measured; a claim that is not kept cannot
+    #: be checked against what turned out to be true.
+    values: dict[str, Any] = Field(default_factory=dict)
+    confidences: dict[str, float] = Field(default_factory=dict)
 
     @property
     def resolved(self) -> bool:
