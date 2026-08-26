@@ -116,6 +116,8 @@ class Controller:
         evaluator = GateEvaluator(artifacts=self.artifacts, judge=self.planner)
         satisfied: set[str] = set()
         attempts: list[GoalAttempt] = []
+        #: goal id -> why its last attempt was rejected.
+        rejected: dict[str, dict[str, Any]] = {}
         tried: dict[str, int] = {}
 
         while True:
@@ -160,8 +162,12 @@ class Controller:
                     budget=budget_for(goal, self.context),
                     workspace=self.workspace,
                     goal_id=goal.id,
+                    feedback=rejected.get(goal.id),
                 )
                 self.context.update(outcome.context)
+                # Local to the attempt that was told it: a later goal has its own history
+                # and should not inherit this one's.
+                self.context.pop("previous_attempt", None)
 
                 result = evaluator.evaluate(
                     goal, self.context, exhausted=outcome.exhausted
@@ -192,6 +198,15 @@ class Controller:
             )
             if result.satisfied:
                 satisfied.add(goal.id)
+            else:
+                # What the gate actually objected to, carried into the next attempt.
+                # Without it a retry can only repeat itself and hope for a better roll.
+                rejected[goal.id] = {
+                    "attempt": tried[goal.id],
+                    "failed_checks": list(result.failed_checks),
+                    "missing_evidence": list(result.missing_kinds),
+                    "rationale": result.rationale,
+                }
 
     # -- selection ---------------------------------------------------------------------
 

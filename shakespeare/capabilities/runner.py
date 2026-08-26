@@ -251,8 +251,13 @@ class CapabilityRunner:
         budget: Budget,
         workspace: Path,
         goal_id: str = "",
+        feedback: dict[str, Any] | None = None,
     ) -> CapabilityOutcome:
         working = dict(context)
+        if feedback:
+            # Why the last attempt was rejected. A retry that is told nothing can only
+            # do the same thing again and hope.
+            working["previous_attempt"] = feedback
         agent = self.agents.get(capability.id) or self.agents["*"]
         rounds: list[Round] = []
         produced: list[Artifact] = []
@@ -281,11 +286,23 @@ class CapabilityRunner:
             return outcome(exhausted=not undivided.finished)
 
         whole: list[Any] = list(divisible)
-        remaining: list[Any] = list(whole)
+        # Work already carried in from an earlier attempt is not work. A live run kept
+        # restarting at sixty items, once throwing away fifty-nine it had just resolved.
+        remaining: list[Any] = _outstanding(whole, working, _progress_keys(capability))
         observations: list[dict[str, Any]] = []
         accumulated: dict[str, list[Any]] = {}
         number = 0
         attempts = 0
+        if not remaining:
+            # Every item is accounted for already; one round to publish what is there.
+            final = self._pursue_batch(
+                capability=capability, request=request, working=working, rounds=rounds,
+                produced=produced, budget=budget, workspace=workspace, goal_id=goal_id,
+                agent=agent, focus=_identify(whole),
+            )
+            working[capability.divides] = whole
+            return outcome(exhausted=not final.finished)
+
         while remaining:
             plan = self._plan_batch(
                 capability, remaining, observations,
@@ -547,6 +564,10 @@ def _catalog_summary(capability: CapabilitySpec, config_root: str | None) -> dic
     }
 
 
+#: Shown in full rather than described, because describing the shape of a diagnosis
+#: leaves the next attempt exactly as uninformed as the last one.
+_VERBATIM: frozenset[str] = frozenset({"previous_attempt"})
+
 #: Output keys whose entries carry an item_id, and therefore count as work completed.
 _PROGRESS_KEYS: tuple[str, ...] = ("candidates", "unrendered", "extractions", "results")
 
@@ -590,6 +611,31 @@ def _record_progress(working: dict[str, Any]) -> None:
     working["_completed"] = seen
 
 
+def _progress_keys(capability: CapabilitySpec) -> tuple[str, ...]:
+    """Which working keys count as this capability's own progress.
+
+    Derived from what its own components produce, never shared. One capability's per-item
+    output says nothing about whether another has done its work, and a single global
+    record of "done" would let each inherit the other's progress and skip its own.
+    """
+    from ..operators.contracts import OUTPUT_KEYS
+
+    produced = {key for name in capability.catalog for key in OUTPUT_KEYS.get(name, ())}
+    return tuple(key for key in _PROGRESS_KEYS if key in produced)
+
+
+def _outstanding(
+    whole: list[Any], working: dict[str, Any], keys: tuple[str, ...]
+) -> list[Any]:
+    done = {
+        str(row["item_id"])
+        for key in keys
+        for row in working.get(key) or []
+        if isinstance(row, dict) and row.get("item_id") is not None
+    }
+    return [row for row in whole if str(row.get("item_id")) not in done]
+
+
 def _identify(batch: list[Any]) -> frozenset[str]:
     return frozenset(
         str(row["item_id"]) for row in batch if isinstance(row, dict) and "item_id" in row
@@ -618,6 +664,9 @@ def _summarise(
     described: dict[str, Any] = {}
     for key, value in working.items():
         if key.startswith("_"):
+            continue
+        if key in _VERBATIM:
+            described[key] = value
             continue
         if focus is not None and isinstance(value, list):
             if key == divides:

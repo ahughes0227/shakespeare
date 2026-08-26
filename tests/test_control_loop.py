@@ -211,3 +211,51 @@ class TestTelemetry:
         shipped = recorder.serialized()
         for secret in ("ACME Corporation", "INV-99812", "Globex", "invoice body"):
             assert secret not in shipped
+
+
+class TestARetryIsToldWhyItIsRetrying:
+    """A retry that changes nothing is the same run again.
+
+    Five live runs failed a goal three times each, and every attempt began with the same
+    request and no idea what the gate had objected to. The verdict went to telemetry and
+    the audit log — everywhere except the one place that could act on it.
+    """
+
+    @staticmethod
+    def _contexts(tmp_path: Path) -> list[tuple[str, dict]]:
+        from harness import rename_agent
+
+        seen: list[tuple[str, dict]] = []
+        inner = rename_agent([])  # renders nothing, so 'named' is rejected every time
+
+        class Recording:
+            def organize(self, *, capability, context, **rest):
+                seen.append((capability.id, context))
+                return inner.organize(capability=capability, context=context, **rest)
+
+        runtime, request, audit, _ = build(tmp_path, agents={"*": Recording()})
+        runtime.run(request, commit=False)
+        audit.close()
+        return seen
+
+    def test_the_first_attempt_has_nothing_to_be_told(self, tmp_path: Path) -> None:
+        resolve = [c for name, c in self._contexts(tmp_path) if name == "resolve"]
+        assert resolve and "previous_attempt" not in resolve[0]
+
+    def test_a_later_attempt_is_given_the_gate_verdict(self, tmp_path: Path) -> None:
+        resolve = [c for name, c in self._contexts(tmp_path) if name == "resolve"]
+        told = [c["previous_attempt"] for c in resolve if "previous_attempt" in c]
+        assert told, "every attempt after the first should know why the last one failed"
+        assert "resolution_accounted" in told[0]["failed_checks"]
+        assert told[0]["attempt"] == 1
+
+    def test_it_is_shown_in_full_rather_than_described(self, tmp_path: Path) -> None:
+        """Describing the shape of a diagnosis informs nobody."""
+        resolve = [c for name, c in self._contexts(tmp_path) if name == "resolve"]
+        told = next(c["previous_attempt"] for c in resolve if "previous_attempt" in c)
+        assert set(told) >= {"attempt", "failed_checks", "missing_evidence", "rationale"}
+
+    def test_it_does_not_follow_the_run_into_another_goal(self, tmp_path: Path) -> None:
+        """Each goal has its own history; inheriting another's would be noise at best."""
+        others = [c for name, c in self._contexts(tmp_path) if name != "resolve"]
+        assert others and not any("previous_attempt" in c for c in others)
