@@ -750,3 +750,126 @@ class TestProgressSurvivesAcrossAttempts:
         assert attempt(context).sufficient, "it still answers"
         assert len(handed) == scheduled, "but it schedules nothing, having nothing left to do"
         assert len(context["items"]) == 60, "and the set it hands on is still whole"
+
+
+class TestABatchIsFinishedWhenItsItemsAre:
+    """Saying a batch is answered is not the same as answering it.
+
+    A round with no components succeeds trivially, so a capability could declare its batch
+    done having produced nothing for it. Five live attempts each said yes to fourteen items
+    and moved none of them, and the goal failed six times without advancing once.
+    """
+
+    EXTRACTING = DIVISIBLE.model_copy(
+        update={"catalog": frozenset({"text.normalize", "doc.extract"})}
+    )
+
+    def _runner(self, tmp_path: Path, agent):
+        """A runner whose components report one row per item they were told to handle."""
+        operators = build_registry()
+        runner = CapabilityRunner(
+            executor=Executor(operators, Verifier(operators)),
+            agents={"*": agent},
+            artifacts=ArtifactStore(root=tmp_path / "artifacts", run_id="r"),
+            capacity=16384,
+        )
+        original = runner.executor.execute
+
+        def execute(composition, domain, **kwargs):
+            results = original(composition, domain, **kwargs)
+            invocation = composition.invocations[0]
+            if invocation.operator == "schedule.plan":
+                return results
+            handled = invocation.parameters.get("handled")
+            if handled is None:
+                handled = kwargs["stage_inputs"].get("items") or []
+            for item in results:
+                if item.output is not None:
+                    item.output["extractions"] = [
+                        {"item_id": row["item_id"], "text": "x"} for row in handled
+                    ]
+            return results
+
+        runner.executor.execute = execute  # type: ignore[method-assign]
+        return runner
+
+    @staticmethod
+    def _extract(handled: list | None = None) -> Organization:
+        parameters: dict = {"values": {"v": "x"}}
+        if handled is not None:
+            parameters["handled"] = handled
+        return Organization(
+            invocations=(
+                Invocation(
+                    invocation_id="x", operator="text.normalize", parameters=parameters
+                ),
+            ),
+            intent="extract",
+            sufficient=True,
+            publishes="ExtractedContent",
+        )
+
+    class _Claiming:
+        """Declares every batch answered while producing nothing for any of them."""
+
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def organize(self, *, capability, request, artifacts, context, prior, catalog_summary):
+            self.calls += 1
+            return (
+                Organization(intent="already done", sufficient=True, publishes=None),
+                None,
+            )
+
+    def _run(self, tmp_path: Path, agent, runner=None):
+        return (runner or self._runner(tmp_path, agent)).run(
+            capability=self.EXTRACTING,
+            request="extract them",
+            context={"items": items(60), "root": str(tmp_path)},
+            budget=Budget(envelope=BudgetEnvelope(operator_calls="400"), items=60),
+            workspace=tmp_path / "work",
+        )
+
+    def test_an_empty_claim_does_not_finish_a_batch(self, tmp_path: Path) -> None:
+        outcome = self._run(tmp_path, self._Claiming())
+        assert outcome.exhausted, "the runtime checked rather than taking its word"
+        assert not outcome.sufficient
+
+    def test_it_gives_up_rather_than_claiming_its_way_through(self, tmp_path: Path) -> None:
+        """Bounded, because every attempt at an unaccounted batch is billed."""
+        agent = self._Claiming()
+        self._run(tmp_path, agent)
+        assert agent.calls <= 20
+
+    def test_a_batch_that_does_the_work_is_finished(self, tmp_path: Path) -> None:
+        class Working:
+            def organize(inner, *, capability, request, artifacts, context, prior, catalog_summary):
+                return self._extract(), None
+
+        outcome = self._run(tmp_path, Working())
+        assert outcome.sufficient
+        assert len(outcome.context["extractions"]) == 60
+
+    def test_only_the_unaccounted_items_are_offered_again(self, tmp_path: Path) -> None:
+        """Redoing the part of a batch that worked would spend the run's budget twice."""
+
+        class Partial:
+            """Accounts for everything except the last item of whatever it is handed."""
+
+            def organize(inner, *, capability, request, artifacts, context, prior, catalog_summary):
+                batch = list(context.get("items") or [])
+                return self._extract(batch[:-1] if len(batch) > 1 else []), None
+
+        runner = self._runner(tmp_path, Partial())
+        offered: list[int] = []
+        original = runner._plan_batch
+
+        def counting(capability, remaining, weights, observations, **kwargs):
+            offered.append(len(remaining))
+            return original(capability, remaining, weights, observations, **kwargs)
+
+        runner._plan_batch = counting  # type: ignore[method-assign]
+        self._run(tmp_path, Partial(), runner=runner)
+        assert offered == sorted(offered, reverse=True), "the outstanding set only shrinks"
+        assert len(set(offered)) == len(offered), "and it never stands still"

@@ -159,9 +159,15 @@ class CapabilityOutcome:
 
     @property
     def sufficient(self) -> bool:
-        """Claimed *and* borne out. A round that failed has established nothing."""
+        """Claimed *and* borne out. A round that failed has established nothing.
+
+        `exhausted` is part of the answer: the runtime stops a capability when the work it
+        handed over came back unaccounted for, and a final round claiming otherwise is the
+        very thing that stop exists to catch.
+        """
         return (
-            bool(self.rounds)
+            not self.exhausted
+            and bool(self.rounds)
             and self.rounds[-1].succeeded
             and self.rounds[-1].organization.sufficient
         )
@@ -293,9 +299,10 @@ class CapabilityRunner:
             return outcome(exhausted=not undivided.finished)
 
         whole: list[Any] = list(divisible)
+        progress = _progress_keys(capability)
         # Work already carried in from an earlier attempt is not work. A live run kept
         # restarting at sixty items, once throwing away fifty-nine it had just resolved.
-        remaining: list[Any] = _outstanding(whole, working, _progress_keys(capability))
+        remaining: list[Any] = _outstanding(whole, working, progress)
         observations: list[dict[str, Any]] = []
         # Seeded from what is already there. Starting empty and then assigning back made
         # each batch replace every earlier attempt's rows, so a goal that had resolved
@@ -342,26 +349,35 @@ class CapabilityRunner:
                 agent=agent, focus=_identify(batch),
             )
             _accumulate(working, accumulated, exclude=capability.divides)
+            # A capability can declare a batch answered without having produced anything
+            # for it — a round with no components succeeds trivially. The runtime knows
+            # exactly which items it handed over, so it checks rather than takes the word:
+            # five live attempts each said yes to fourteen items and moved none of them.
+            unaccounted = _outstanding(batch, working, progress) if progress else []
+            done = spent.finished and not unaccounted
             observations.append(
                 {
                     "items": len(batch),
                     "weight": plan.get("batch_weight") or len(batch),
                     "completion_tokens": spent.completion_tokens,
                     "truncated": spent.truncated,
-                    "failed": not spent.finished,
+                    "failed": not done,
                 }
             )
-            if spent.finished:
+            if done:
                 attempts = 0
                 remaining = remaining[len(batch) :]
                 continue
 
-            # It did not finish. If the reason was size, the observation just recorded
-            # will make the next plan smaller, so the same items are worth another go.
+            # If the reason was size, or the batch went unaccounted, the observation just
+            # recorded will make the next plan smaller — so the items are worth another go.
             attempts += 1
-            if not spent.truncated or len(batch) <= 1 or attempts >= self.max_resize_attempts:
+            recoverable = spent.truncated or bool(unaccounted)
+            if not recoverable or len(batch) <= 1 or attempts >= self.max_resize_attempts:
                 working[capability.divides] = whole
                 return outcome(exhausted=True)
+            # Only the items still unaccounted for; the rest of the batch is done.
+            remaining = unaccounted + remaining[len(batch) :] if unaccounted else remaining
 
         working[capability.divides] = whole
         return outcome(exhausted=False)
