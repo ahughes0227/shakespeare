@@ -306,8 +306,17 @@ class Invocation(Contract):
                 raise ValueError(f"binding target must be an argument name: {target}")
             # The source names an invocation or a working value. Those are labels, not
             # Python identifiers, so "inv-1.window" is a legitimate reference.
+            #
+            # A literal value here is refused rather than coerced. Reclassifying it as a
+            # parameter would let a binding smuggle in a path the run was never given,
+            # and what may be read is a trust question, not a shape question.
             if not all(_LABEL.match(part) for part in source.split(".")):
-                raise ValueError(f"binding source must be a dotted label: {source}")
+                raise ValueError(
+                    f"binding {target} to {source!r} is a literal value, not a reference. "
+                    f"A binding source names an earlier invocation or a working value, "
+                    f"e.g. \"root\" or \"step1.window\". To pass a literal, put it in "
+                    f"parameters instead."
+                )
         return value
 
 

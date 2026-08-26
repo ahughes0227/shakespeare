@@ -150,3 +150,34 @@ class TestTelemetryEnvelope:
             run_id="r", span="s", digests={"content": content_digest("ACME Corporation")}
         )
         assert "ACME" not in envelope.model_dump_json()
+
+
+class TestBindingRefusals:
+    """A binding names a reference. A literal is refused, not reclassified.
+
+    Reclassifying it as a parameter would let a binding smuggle in a path the run was
+    never given, and what may be read is a trust question rather than a shape question.
+    """
+
+    def test_a_literal_path_is_refused_with_advice(self) -> None:
+        with pytest.raises(ValidationError) as caught:
+            Invocation(invocation_id="a", operator="fs.scan", bindings={"root": "/etc/passwd"})
+        message = str(caught.value)
+        assert "literal value, not a reference" in message
+        assert "put it in parameters instead" in message
+
+    def test_a_dotted_reference_is_accepted(self) -> None:
+        invocation = Invocation(
+            invocation_id="b", operator="doc.extract", bindings={"items": "step1.window"}
+        )
+        assert invocation.bindings["items"] == "step1.window"
+
+    def test_a_hyphenated_invocation_id_is_a_valid_label(self) -> None:
+        """Invocation ids are labels, not Python identifiers."""
+        invocation = Invocation(
+            invocation_id="c", operator="doc.extract", bindings={"items": "inv-1.window"}
+        )
+        assert invocation.bindings["items"] == "inv-1.window"
+
+    def test_an_empty_inputs_mapping_becomes_no_inputs(self) -> None:
+        assert Invocation(invocation_id="d", operator="fs.scan", inputs={}).inputs == ()
