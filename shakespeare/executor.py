@@ -253,21 +253,26 @@ class Executor:
                 # guess; naming what is actually bindable ends it in one.
                 from .operators.contracts import OUTPUT_KEYS
 
+                bindable = _bindable(arguments)
                 if source in OUTPUT_KEYS.get(invocation.operator, ()):
                     detail = (
                         f"binding {target}={source} names an output of "
                         f"{invocation.operator}, not an input. Outputs need no declaring; "
                         f"a later invocation reads them by name"
                     )
+                elif target in arguments and source in _required_of(invocation.operator):
+                    # Written the other way round: the value it wants is here, under the
+                    # name it put on the left. Same class as the alias map in ADR 0001,
+                    # and as cheap to end by saying which way the arrow points.
+                    detail = (
+                        f"binding {target}={source} is reversed. A binding is "
+                        f"argument=source, so this fills {target} from {source}. "
+                        f"Write {source}={target}"
+                    )
                 else:
                     # Runtime plumbing is in the argument mapping but is not the
                     # composition's to bind, so offering it would only invite the next
                     # mistake.
-                    bindable = sorted(
-                        key
-                        for key in arguments
-                        if not key.startswith("_") and key not in {"config", "operation"}
-                    )
                     detail = (
                         f"binding {target}={source} has no resolved source; "
                         f"bindable here: {', '.join(bindable) or 'nothing yet'}"
@@ -316,7 +321,7 @@ class Executor:
                     started_at=started_at,
                     ended_at=_isoformat(time.time()),
                     error_code=ErrorCode.COMPOSITION_INVALID,
-                    error_detail=_explain(invocation.operator, exc),
+                    error_detail=_explain(invocation.operator, exc, arguments),
                 )
 
             try:
@@ -355,13 +360,41 @@ class Executor:
         )
 
 
-def _explain(operator: str, error: ValidationError) -> str:
+def _explain(
+    operator: str, error: ValidationError, arguments: dict[str, Any] | None = None
+) -> str:
     """A message an agent can act on next attempt, not a stack of pydantic internals."""
     problems = []
     for item in error.errors():
         field = ".".join(str(part) for part in item["loc"]) or "<root>"
         problems.append(f"{field}: {item['msg']}")
-    return f"{operator} argument contract not satisfied - " + "; ".join(problems[:5])
+    detail = f"{operator} argument contract not satisfied - " + "; ".join(problems[:5])
+    # Naming what is missing without naming what is here leaves the next round to guess,
+    # and it guessed wrong three attempts running on a value that was sitting in front
+    # of it under another name.
+    bindable = _bindable(arguments or {})
+    return f"{detail}; bindable here: {', '.join(bindable) or 'nothing'}"
+
+
+def _required_of(operator: str) -> frozenset[str]:
+    """Argument names an operator cannot run without."""
+    from .operators.contracts import INPUT_MODELS
+
+    model = INPUT_MODELS.get(operator)
+    if model is None:
+        return frozenset()
+    return frozenset(
+        name for name, field in model.model_fields.items() if field.is_required()
+    )
+
+
+def _bindable(arguments: dict[str, Any]) -> list[str]:
+    """Argument names a composition may actually bind from, excluding runtime plumbing."""
+    return sorted(
+        key
+        for key in arguments
+        if not key.startswith("_") and key not in {"config", "operation"}
+    )
 
 
 def _isoformat(epoch: float) -> str:
