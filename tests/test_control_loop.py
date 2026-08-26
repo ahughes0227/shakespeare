@@ -259,3 +259,38 @@ class TestARetryIsToldWhyItIsRetrying:
         """Each goal has its own history; inheriting another's would be noise at best."""
         others = [c for name, c in self._contexts(tmp_path) if name != "resolve"]
         assert others and not any("previous_attempt" in c for c in others)
+
+
+class TestStagingPrecedesReview:
+    """Stage, verify, then move — the review goal has to have something to review.
+
+    A live run failed 'reviewed' three times with "none of its 60 entries are staged; all
+    60 are missing". Nothing had been staged because staging waited for the loop to
+    finish, and the goal that asks whether the staged tree matches the plan runs inside it.
+    """
+
+    def test_the_tree_is_staged_before_the_goal_that_reviews_it(self, harness) -> None:
+        runtime, request, audit, _ = harness
+        staged_at: list[int] = []
+
+        original = runtime._stage_when_planned
+
+        def record(**kwargs):
+            original(**kwargs)
+            staged_at.append(len(kwargs["context"].get("plan", {}).get("entries", [])))
+
+        runtime._stage_when_planned = record  # type: ignore[method-assign]
+        result = runtime.run(request, commit=False)
+        assert result.outcome == "planned"
+        assert any(count > 0 for count in staged_at), "staged while the loop was running"
+        audit.close()
+
+    def test_a_plan_is_staged_once_however_often_it_is_offered(self, harness) -> None:
+        """Every satisfied goal offers the context; only the first one with a plan acts."""
+        runtime, request, audit, _ = harness
+        result = runtime.run(request, commit=False)
+        assert result.outcome == "planned"
+        staged = list(Path(runtime.workspace_root).glob("**/staging/**/*.pdf"))
+        assert staged, "the plan was materialised"
+        assert len(staged) == len(result.plan.entries)
+        audit.close()

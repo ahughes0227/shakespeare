@@ -172,6 +172,16 @@ class Runtime:
             planner=self.planner,
             workspace=workspace,
             tracer=tracer,
+            # A goal that asks whether the staged tree matches the plan cannot be
+            # satisfied if nothing is staged until the loop has finished. Staging is the
+            # first phase of the commit, so it happens the moment there is a plan to
+            # stage — and stays the runtime's, never a capability's.
+            on_goal_satisfied=lambda context: self._stage_when_planned(
+                run_id=run_id,
+                context=context,
+                input_root=Path(request.input_root),
+                staging=staging,
+            ),
             context={
                 "run_id": run_id,
                 "workflow_id": workflow.spec.id,
@@ -233,11 +243,9 @@ class Runtime:
 
         plan = self._plan_from(controller.context)
         if plan is not None:
-            self.audit.record_plan(run_id=run_id, plan=plan)
-            self._ensure_staged(
+            self._stage_when_planned(
                 run_id=run_id,
                 context=controller.context,
-                plan=plan,
                 input_root=Path(request.input_root),
                 staging=staging,
             )
@@ -362,6 +370,33 @@ class Runtime:
     def _plan_from(self, context: dict[str, Any]) -> ChangePlan | None:
         payload = context.get("plan")
         return ChangePlan.model_validate(payload) if payload is not None else None
+
+    def _stage_when_planned(
+        self,
+        *,
+        run_id: str,
+        context: dict[str, Any],
+        input_root: Path,
+        staging: Path,
+    ) -> None:
+        """Record and stage the plan, once, as soon as one exists.
+
+        Called after every satisfied goal rather than at a named point, so the loop stays
+        ignorant of which goal produces a plan and which one reviews it.
+        """
+        if context.get("_staged"):
+            return
+        plan = self._plan_from(context)
+        if plan is None:
+            return
+        self.audit.record_plan(run_id=run_id, plan=plan)
+        self._ensure_staged(
+            run_id=run_id,
+            context=context,
+            plan=plan,
+            input_root=input_root,
+            staging=staging,
+        )
 
     def _ensure_staged(
         self,

@@ -102,6 +102,10 @@ class Controller:
     tracer: Tracer | None = None
     #: How many times one goal may be attempted before the run gives up on it.
     max_goal_attempts: int = 3
+    #: Called with the working context each time a goal is satisfied. The loop announces
+    #: that something became true; what to do about it is the runtime's business, because
+    #: acting on it may mean writing and the loop never writes.
+    on_goal_satisfied: Any = None
     context: dict[str, Any] = field(default_factory=dict)
 
     def pursue(
@@ -198,6 +202,8 @@ class Controller:
             )
             if result.satisfied:
                 satisfied.add(goal.id)
+                if self.on_goal_satisfied is not None:
+                    self.on_goal_satisfied(self.context)
             else:
                 # What the gate actually objected to, carried into the next attempt.
                 # Without it a retry can only repeat itself and hope for a better roll.
