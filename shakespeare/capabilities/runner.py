@@ -296,8 +296,12 @@ class CapabilityRunner:
             working[capability.divides] = batch
             if plan["needed"] or observations:
                 # Only say so when it is true. A capability handed the whole set should
-                # not be told it is looking at batch one of one.
+                # not be told it is looking at batch one of one. The counts matter: shown
+                # thirty items beside an artifact summary saying sixty, a capability
+                # reported itself incomplete every round and never finished a batch.
                 working["batch_number"] = number
+                working["batch_remaining"] = len(remaining) - len(batch)
+                working["batch_total"] = len(whole)
 
             spent = self._pursue_batch(
                 capability=capability, request=request, working=working, rounds=rounds,

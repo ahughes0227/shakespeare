@@ -6,8 +6,8 @@ config_groups: [extract, confidence]
 produces: [ExtractedContent]
 # How many times it may reorganise before giving up. This is where a capability
 # decides it has done part of the work and should carry on.
-max_rounds: 3
+max_rounds: 6
 # Measured, not guessed: this is what one item costs in output tokens.
 cost_per_item: 320
 divides: items
-prompt_version: "1.1.0"
+prompt_version: "1.2.0"
