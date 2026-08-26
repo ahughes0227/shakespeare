@@ -24,7 +24,13 @@ from .planner import ModelGoalPlanner
 from .prompts import PromptStore
 from .registry import OperatorRegistry
 from .runtime import Runtime
-from .telemetry import Exporter, LangSmithExporter, NullExporter, Tracer
+from .telemetry import (
+    Exporter,
+    LangSmithExporter,
+    NullExporter,
+    OpenTelemetryExporter,
+    Tracer,
+)
 from .verifier import Verifier
 from .workflows import WorkflowRegistry
 
@@ -35,15 +41,25 @@ def default_state_root() -> Path:
 
 
 def exporters() -> tuple[Exporter, ...]:
-    """LangSmith only when deliberately configured.
+    """Wire whatever is deliberately configured, and nothing otherwise.
 
-    Nothing leaves the machine by default, and when it does, only TelemetryEnvelope
-    fields are ever sent.
+    OpenTelemetry activates on the standard `OTEL_EXPORTER_OTLP_ENDPOINT`, so a collector
+    already running for something else picks Shakespeare up without further configuration.
+    LangSmith needs both of its own variables.
+
+    Whatever is wired, only TelemetryEnvelope fields are ever sent.
     """
+    configured: list[Exporter] = []
+    if os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT"):
+        configured.append(
+            OpenTelemetryExporter(
+                service_name=os.environ.get("OTEL_SERVICE_NAME", "shakespeare")
+            )
+        )
     project = os.environ.get("LANGSMITH_PROJECT")
     if project and os.environ.get("LANGSMITH_API_KEY"):
-        return (LangSmithExporter(project),)
-    return (NullExporter(),)
+        configured.append(LangSmithExporter(project))
+    return tuple(configured) or (NullExporter(),)
 
 
 @dataclass(frozen=True)

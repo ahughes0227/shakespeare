@@ -32,6 +32,18 @@ from ..verifier import Denial
 from .registry import CapabilitySpec
 
 
+class _NoSpan:
+    def __enter__(self) -> None:
+        return None
+
+    def __exit__(self, *_: object) -> None:
+        return None
+
+
+def _no_span() -> _NoSpan:
+    return _NoSpan()
+
+
 class Organization(Contract):
     """What a capability decides to do this round.
 
@@ -138,6 +150,7 @@ class CapabilityRunner:
     ask_sink: Any = None
     #: Components admitted during this run, per capability.
     grants: dict[str, set[str]] = field(default_factory=dict)
+    tracer: Any = None
     _compose: Any = field(default=None, repr=False)
 
     def run(
@@ -158,6 +171,17 @@ class CapabilityRunner:
         working = dict(context)
 
         for number in range(1, capability.max_rounds + 1):
+            round_span = (
+                self.tracer.span(
+                    f"round.{capability.id}",
+                    stage=goal_id,
+                    attempt=number,
+                    domain=capability.id,
+                )
+                if self.tracer
+                else _no_span()
+            )
+            round_span.__enter__()
             try:
                 organization, usage = agent.organize(
                     capability=capability,
@@ -188,6 +212,7 @@ class CapabilityRunner:
                         denial=str(failure),
                     )
                 )
+                round_span.__exit__(None, None, None)
                 continue
 
             if self.usage_sink is not None:
@@ -217,6 +242,7 @@ class CapabilityRunner:
                         stage=goal_id,
                         attempt=number,
                         granted=frozenset(self.grants.get(capability.id, set())),
+                        tracer=self.tracer,
                     )
                 except (Denial, CompositionError) as refusal:
                     denial = str(refusal)
@@ -227,6 +253,7 @@ class CapabilityRunner:
 
             rounds.append(Round(number=number, organization=organization, results=results,
                                 denial=denial))
+            round_span.__exit__(None, None, None)
 
             if organization.ask is not None and self.ask_sink is not None:
                 admitted = self.ask_sink(organization.ask, capability.id)

@@ -120,13 +120,22 @@ Three channels, correlated by `run_id`:
 | Channel | Holds | Leaves the machine |
 | --- | --- | --- |
 | Audit log (SQLite) | Committed facts, the per-stage DAG, costs, decisions | Never |
-| Traces (LangSmith) | Live spans over run → stage → attempt → invocation | **Digests and metadata only** |
+| Traces (OpenTelemetry, LangSmith) | Live spans over run → goal → round → component | **Digests and metadata only** |
 | Workspace | Extracted text, staged files | Never |
 
 The inputs are customer documents, so redaction is architectural rather than a setting:
 `Tracer.span` accepts only envelope primitives, so there is no parameter through which
 content could be passed. Nothing is exported at all unless `LANGSMITH_PROJECT` and
 `LANGSMITH_API_KEY` are both set.
+
+Tracing activates on the standard `OTEL_EXPORTER_OTLP_ENDPOINT`, so a collector already
+running for something else picks Shakespeare up with no further configuration. LangSmith
+needs `LANGSMITH_PROJECT` and `LANGSMITH_API_KEY`. Both can run at once, and with neither
+set nothing is exported at all.
+
+Span attributes are set from `TelemetryEnvelope` fields and nothing else, so there is no
+path by which document content could become an attribute — the same guarantee as the
+envelope itself, enforced at the same single point.
 
 LangGraph's checkpointer holds local working state, including content-derived values. It
 sits in the run's own workspace alongside the extracted text and is protected the same

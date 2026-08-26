@@ -147,6 +147,7 @@ class Executor:
         stage: str | None = None,
         attempt: int | None = None,
         granted: frozenset[str] = frozenset(),
+        tracer: Tracer | None = None,
     ) -> tuple[InvocationResult, ...]:
         """Verify then run every invocation in order, resolving declared inputs."""
         self.verifier.verify_composition(
@@ -171,6 +172,7 @@ class Executor:
                 domain=domain,
                 stage=stage,
                 attempt=attempt,
+                tracer=tracer,
             )
             results.append(result)
             if result.output is not None:
@@ -193,6 +195,7 @@ class Executor:
         domain: DomainSpec,
         stage: str | None,
         attempt: int | None,
+        tracer: Tracer | None = None,
     ) -> InvocationResult:
         registered = self.registry.get(invocation.operator)
         spec = registered.spec
@@ -248,8 +251,11 @@ class Executor:
                 )
             arguments[target] = arguments[source]
 
+        # The caller's tracer wins, so a component span joins the run's tree rather than
+        # forming an orphan under whichever tracer the executor was constructed with.
+        active = tracer or self.tracer
         span = (
-            self.tracer.span(
+            active.span(
                 f"operator.{invocation.operator}",
                 stage=stage,
                 attempt=attempt,
@@ -257,7 +263,7 @@ class Executor:
                 operator=invocation.operator,
                 operator_version=spec.version,
             )
-            if self.tracer
+            if active
             else _null_span()
         )
 

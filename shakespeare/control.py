@@ -41,6 +41,18 @@ from .telemetry import Tracer
 from .verifier import Denial
 
 
+class _NoSpan:
+    def __enter__(self) -> None:
+        return None
+
+    def __exit__(self, *_: object) -> None:
+        return None
+
+
+def _no_span() -> _NoSpan:
+    return _NoSpan()
+
+
 class ControlError(RuntimeError):
     def __init__(self, message: str, code: ErrorCode) -> None:
         super().__init__(message)
@@ -130,17 +142,32 @@ class Controller:
                 )
 
             capability = self._choose_capability(goal)
-            outcome = self.runner.run(
-                capability=capability,
-                request=goal.statement,
-                context=self.context,
-                budget=budget_for(goal, self.context),
-                workspace=self.workspace,
-                goal_id=goal.id,
+            goal_span = (
+                self.tracer.span(
+                    f"goal.{goal.id}",
+                    stage=goal.id,
+                    attempt=tried[goal.id],
+                    domain=capability.id,
+                )
+                if self.tracer
+                else _no_span()
             )
-            self.context.update(outcome.context)
+            with goal_span as span:
+                outcome = self.runner.run(
+                    capability=capability,
+                    request=goal.statement,
+                    context=self.context,
+                    budget=budget_for(goal, self.context),
+                    workspace=self.workspace,
+                    goal_id=goal.id,
+                )
+                self.context.update(outcome.context)
 
-            result = evaluator.evaluate(goal, self.context)
+                result = evaluator.evaluate(goal, self.context)
+                if span is not None:
+                    span.add_count("rounds", len(outcome.rounds))
+                    if not result.satisfied:
+                        span.fail(ErrorCode.OBLIGATION_FAILED)
             attempts.append(
                 GoalAttempt(
                     goal_id=goal.id,

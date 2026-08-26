@@ -61,6 +61,20 @@ class RunResult:
         return self.outcome == "committed"
 
 
+class _NoSpan:
+    """Stands in when no tracer is configured, so call sites need no branch."""
+
+    def __enter__(self) -> None:
+        return None
+
+    def __exit__(self, *_: object) -> None:
+        return None
+
+
+def _no_span() -> _NoSpan:
+    return _NoSpan()
+
+
 @dataclass
 class Runtime:
     operators: OperatorRegistry
@@ -117,6 +131,8 @@ class Runtime:
         self._record_usage(run_id, "planner.route", usage)
 
         artifacts = ArtifactStore(root=workspace / "artifacts", run_id=run_id)
+        # One tracer per run, so every span carries the run it belongs to.
+        tracer = self.tracer.rebind(run_id) if self.tracer else None
         controller = Controller(
             capabilities=self.capabilities,
             runner=CapabilityRunner(
@@ -131,12 +147,13 @@ class Runtime:
                     ask, capability_id=capability_id, run_id=run_id
                 ),
                 grants=self.grants,
+                tracer=tracer,
             ),
             artifacts=artifacts,
             audit=self.audit,
             planner=self.planner,
             workspace=workspace,
-            tracer=self.tracer,
+            tracer=tracer,
             context={
                 "run_id": run_id,
                 "workflow_id": workflow.spec.id,
@@ -149,13 +166,21 @@ class Runtime:
             },
         )
 
+        run_span = (
+            tracer.span("run", digests={"workflow": workflow.digest()})
+            if tracer
+            else _no_span()
+        )
         try:
-            attempts, satisfied, failure = controller.pursue(
-                graph=workflow.spec.graph,
-                request=request,
-                run_id=run_id,
-                budget_for=self._budget_for,
-            )
+            with run_span as span:
+                attempts, satisfied, failure = controller.pursue(
+                    graph=workflow.spec.graph,
+                    request=request,
+                    run_id=run_id,
+                    budget_for=self._budget_for,
+                )
+                if span is not None:
+                    span.add_count("goals_satisfied", len(satisfied))
         except Denial as denial:
             mutation.discard(staging)
             self.audit.record_run_outcome(

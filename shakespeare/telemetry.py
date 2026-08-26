@@ -51,6 +51,73 @@ class RecordingExporter:
         return "\n".join(item.model_dump_json() for item in self.envelopes)
 
 
+class OpenTelemetryExporter:
+    """Emit envelopes as OTLP spans.
+
+    Nesting comes from OpenTelemetry's own context propagation rather than from anything
+    in the envelope: `Tracer.span` opens a real span, so a component call is a child of
+    its round, which is a child of its capability, and so on up to the run.
+
+    The redaction guarantee is unchanged. Span attributes are set from
+    `TelemetryEnvelope` fields and nothing else, so there is no path by which document
+    content could become an attribute.
+    """
+
+    def __init__(self, service_name: str = "shakespeare") -> None:
+        self.service_name = service_name
+        self._tracer: Any = None
+
+    def tracer(self) -> Any:
+        if self._tracer is None:
+            from opentelemetry import trace
+            from opentelemetry.exporter.otlp.proto.http.trace_exporter import (
+                OTLPSpanExporter,
+            )
+            from opentelemetry.sdk.resources import Resource
+            from opentelemetry.sdk.trace import TracerProvider
+            from opentelemetry.sdk.trace.export import BatchSpanProcessor
+
+            provider = trace.get_tracer_provider()
+            if not isinstance(provider, TracerProvider):
+                provider = TracerProvider(
+                    resource=Resource.create({"service.name": self.service_name})
+                )
+                provider.add_span_processor(BatchSpanProcessor(OTLPSpanExporter()))
+                trace.set_tracer_provider(provider)
+            self._tracer = trace.get_tracer("shakespeare")
+        return self._tracer
+
+    def export(self, envelope: TelemetryEnvelope) -> None:
+        """Only reached for an envelope emitted outside a live span."""
+        span = self.tracer().start_span(envelope.span)
+        _apply(span, envelope)
+        span.end()
+
+    def shutdown(self) -> None:
+        from opentelemetry import trace
+        from opentelemetry.sdk.trace import TracerProvider
+
+        provider = trace.get_tracer_provider()
+        if isinstance(provider, TracerProvider):
+            provider.force_flush()
+
+
+def _apply(span: Any, envelope: TelemetryEnvelope) -> None:
+    """Set span attributes from the envelope, and only from the envelope."""
+    for key, value in envelope.model_dump(mode="json", exclude_none=True).items():
+        if key == "span":
+            continue
+        if isinstance(value, dict):
+            for inner, item in value.items():
+                span.set_attribute(f"shakespeare.{key}.{inner}", item)
+        else:
+            span.set_attribute(f"shakespeare.{key}", value)
+    if envelope.error_code is not None:
+        from opentelemetry.trace import Status, StatusCode
+
+        span.set_status(Status(StatusCode.ERROR, str(envelope.error_code)))
+
+
 class LangSmithExporter:
     """Ships envelopes to LangSmith as span metadata.
 
@@ -93,6 +160,14 @@ class Tracer:
     def __init__(self, run_id: str, exporters: Sequence[Exporter] = ()) -> None:
         self.run_id = run_id
         self._exporters: tuple[Exporter, ...] = tuple(exporters) or (NullExporter(),)
+        self._otel = next(
+            (item for item in self._exporters if isinstance(item, OpenTelemetryExporter)),
+            None,
+        )
+
+    def rebind(self, run_id: str) -> Tracer:
+        """A tracer for one run, sharing the configured exporters."""
+        return Tracer(run_id, self._exporters)
 
     def emit(self, envelope: TelemetryEnvelope) -> None:
         for exporter in self._exporters:
@@ -118,29 +193,42 @@ class Tracer:
     ) -> Iterator[SpanState]:
         started = time.monotonic()
         state = SpanState()
+        # A real OTel span when one is configured, so parent/child nesting comes from
+        # OpenTelemetry's own context rather than being reconstructed afterwards: a
+        # component call is a child of its round, which is a child of its capability.
+        live = self._otel.tracer().start_as_current_span(name) if self._otel else None
+        span = live.__enter__() if live is not None else None
         try:
             yield state
         finally:
-            self.emit(
-                TelemetryEnvelope(
-                    run_id=self.run_id,
-                    span=name,
-                    stage=stage,
-                    attempt=attempt,
-                    domain=domain,
-                    operator=operator,
-                    operator_version=operator_version,
-                    prompt_version=prompt_version,
-                    requested_model=requested_model,
-                    resolved_model=resolved_model,
-                    provider=provider,
-                    digests={**(digests or {}), **state.digests},
-                    counts={**(counts or {}), **state.counts},
-                    duration_ms=(time.monotonic() - started) * 1000,
-                    cost_usd=cost_usd if cost_usd is not None else state.cost_usd,
-                    error_code=state.error_code,
-                )
+            envelope = TelemetryEnvelope(
+                run_id=self.run_id,
+                span=name,
+                stage=stage,
+                attempt=attempt,
+                domain=domain,
+                operator=operator,
+                operator_version=operator_version,
+                prompt_version=prompt_version,
+                requested_model=requested_model,
+                resolved_model=resolved_model,
+                provider=provider,
+                digests={**(digests or {}), **state.digests},
+                counts={**(counts or {}), **state.counts},
+                duration_ms=(time.monotonic() - started) * 1000,
+                cost_usd=cost_usd if cost_usd is not None else state.cost_usd,
+                error_code=state.error_code,
             )
+            if span is not None:
+                _apply(span, envelope)
+            if live is not None:
+                live.__exit__(None, None, None)
+            for exporter in self._exporters:
+                # The OTel exporter has already recorded this as a live span; emitting it
+                # again would double-count it.
+                if exporter is self._otel:
+                    continue
+                exporter.export(envelope)
 
 
 class SpanState:
