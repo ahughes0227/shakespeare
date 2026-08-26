@@ -230,6 +230,18 @@ def calibrate(
     report = calibration.report(calibration.observe(rows, expected), targets=(precision,))
     _render_calibration(report, precision)
 
+    # A calibration measured over part of a corpus is a calibration of the easy part.
+    # Saying so is the difference between a number and a misleading number.
+    measured = len({row.get("relpath") for row in rows if row.get("relpath") in expected})
+    if measured < len(expected):
+        console.print(
+            f"[yellow]Measured {measured} of {len(expected)} inputs — the run did not "
+            f"resolve the rest, so this describes a subset, not the corpus.[/yellow]"
+        )
+    if result.outcome != "planned":
+        _report(result)
+        raise typer.Exit(code=1)
+
 
 def _claims_of(result: object) -> list[dict[str, object]]:
     """Every rendered item's claimed values, keyed by the relpath the truth file uses."""

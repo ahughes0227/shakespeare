@@ -297,7 +297,15 @@ class CapabilityRunner:
         # restarting at sixty items, once throwing away fifty-nine it had just resolved.
         remaining: list[Any] = _outstanding(whole, working, _progress_keys(capability))
         observations: list[dict[str, Any]] = []
-        accumulated: dict[str, list[Any]] = {}
+        # Seeded from what is already there. Starting empty and then assigning back made
+        # each batch replace every earlier attempt's rows, so a goal that had resolved
+        # forty-six items went back to fourteen and its next attempt had more to do than
+        # its last.
+        accumulated: dict[str, list[Any]] = {
+            key: list(value)
+            for key, value in working.items()
+            if key != capability.divides and _is_per_item(key, value)
+        }
         number = 0
         attempts = 0
         if not remaining:
@@ -593,9 +601,7 @@ def _accumulate(
     asked in pieces.
     """
     for key, value in list(working.items()):
-        if key.startswith("_") or key == exclude or not isinstance(value, list) or not value:
-            continue
-        if not all(isinstance(row, dict) and "item_id" in row for row in value):
+        if key == exclude or not _is_per_item(key, value):
             continue
         merged = {row["item_id"]: row for row in accumulated.get(key, [])}
         merged.update({row["item_id"]: row for row in value})
@@ -646,6 +652,16 @@ def _weigh(items: list[Any], working: dict[str, Any], divides: str) -> list[int]
         else 1
         for row in items
     ]
+
+
+def _is_per_item(key: str, value: Any) -> bool:
+    """A working value that carries one row per item, and so accumulates rather than replaces."""
+    return (
+        not key.startswith("_")
+        and isinstance(value, list)
+        and bool(value)
+        and all(isinstance(row, dict) and "item_id" in row for row in value)
+    )
 
 
 def _progress_keys(capability: CapabilitySpec) -> tuple[str, ...]:

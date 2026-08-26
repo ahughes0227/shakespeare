@@ -649,3 +649,104 @@ class TestItWeighsItemsRatherThanCountingThem:
         assert plan_batch(
             remaining=rows, weights=weights, capacity=16384, cost_per_item=674
         )["batch_size"] == 1
+
+
+class TestProgressSurvivesAcrossAttempts:
+    """A second attempt must start from where the first got to, not behind it.
+
+    A live calibration run watched a goal reach forty-six of sixty items and then start
+    its next attempt with forty-six still to do: each batch was assigning its own results
+    back over everything earlier attempts had accumulated.
+    """
+
+    def _runner(self, tmp_path: Path, agent):
+        operators = build_registry()
+        return CapabilityRunner(
+            executor=Executor(operators, Verifier(operators)),
+            agents={"*": agent},
+            artifacts=ArtifactStore(root=tmp_path / "artifacts", run_id="r"),
+            capacity=16384,
+        )
+
+    class _Reporter:
+        def organize(self, *, capability, request, artifacts, context, prior, catalog_summary):
+            return (
+                Organization(
+                    invocations=(
+                        Invocation(
+                            invocation_id="n",
+                            operator="text.normalize",
+                            parameters={"values": {"v": "x"}},
+                        ),
+                    ),
+                    intent="report",
+                    sufficient=True,
+                    publishes="ExtractedContent",
+                ),
+                None,
+            )
+
+    def test_earlier_rows_are_not_replaced_by_a_later_batch(self, tmp_path: Path) -> None:
+        earlier = [{"item_id": f"i{n}", "text": "done"} for n in range(20)]
+        outcome = self._runner(tmp_path, self._Reporter()).run(
+            capability=DIVISIBLE,
+            request="carry on",
+            context={"items": items(60), "extractions": earlier},
+            budget=Budget(envelope=BudgetEnvelope(operator_calls="400"), items=60),
+            workspace=tmp_path / "work",
+        )
+        kept = {row["item_id"] for row in outcome.context["extractions"]}
+        assert kept >= {row["item_id"] for row in earlier}, "what was already done is still done"
+
+    def test_a_second_attempt_does_not_redo_a_finished_one(self, tmp_path: Path) -> None:
+        """The property that actually matters: attempts converge rather than oscillate."""
+        runner = self._runner(tmp_path, self._Reporter())
+        original = runner.executor.execute
+
+        def execute(composition, domain, **kwargs):
+            results = original(composition, domain, **kwargs)
+            batch = kwargs["stage_inputs"].get("items") or []
+            if composition.invocations[0].operator != "schedule.plan":
+                for item in results:
+                    if item.output is not None:
+                        item.output["extractions"] = [
+                            {"item_id": row["item_id"], "text": "x"} for row in batch
+                        ]
+            return results
+
+        runner.executor.execute = execute  # type: ignore[method-assign]
+
+        handed: list[int] = []
+        plan_batch_of = runner._plan_batch
+
+        def counting(capability, remaining, weights, observations, **kwargs):
+            handed.append(len(remaining))
+            return plan_batch_of(capability, remaining, weights, observations, **kwargs)
+
+        runner._plan_batch = counting  # type: ignore[method-assign]
+
+        # Progress is judged by what this capability's own components produce, so the
+        # catalog has to contain the one that produces it.
+        extracting = DIVISIBLE.model_copy(
+            update={"catalog": frozenset({"text.normalize", "doc.extract"})}
+        )
+
+        def attempt(context: dict):
+            outcome = runner.run(
+                capability=extracting,
+                request="carry on",
+                context=context,
+                budget=Budget(envelope=BudgetEnvelope(operator_calls="400"), items=60),
+                workspace=tmp_path / "work",
+            )
+            context.update(outcome.context)
+            return outcome
+
+        context: dict = {"items": items(60)}
+        assert attempt(context).sufficient
+        assert handed and handed[0] == 60
+        scheduled = len(handed)
+
+        assert attempt(context).sufficient, "it still answers"
+        assert len(handed) == scheduled, "but it schedules nothing, having nothing left to do"
+        assert len(context["items"]) == 60, "and the set it hands on is still whole"
