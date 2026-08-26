@@ -1,10 +1,13 @@
 id: resolve
 version: "1.0.0"
 standing_goal: Determine each item's field values and render its name.
-catalog: [name.render, text.normalize, batch.window]
-config_groups: [naming, confidence, schedule]
+catalog: [name.render, text.normalize]
+config_groups: [naming, confidence]
 produces: [ResolvedNames]
 # How many times it may reorganise before giving up. This is where a capability
 # decides it has done part of the work and should carry on.
-max_rounds: 40
-prompt_version: "1.0.0"
+max_rounds: 3
+# Measured, not guessed: this is what one item costs in output tokens.
+cost_per_item: 674
+divides: items
+prompt_version: "1.1.0"

@@ -128,6 +128,23 @@ class Round:
         }
 
 
+@dataclass
+class BatchCost:
+    """What one batch actually cost, which is what sizes the next one.
+
+    Measured rather than assumed: a fixed batch size is only right when every item costs
+    the same, and invoices do not.
+    """
+
+    completion_tokens: int = 0
+    truncated: bool = False
+    finished: bool = False
+
+    def observe(self, usage: ModelUsage | None) -> None:
+        if usage is not None:
+            self.completion_tokens += usage.completion_tokens
+
+
 @dataclass(frozen=True)
 class CapabilityOutcome:
     capability: str
@@ -155,7 +172,60 @@ class CapabilityRunner:
     #: Components admitted during this run, per capability.
     grants: dict[str, set[str]] = field(default_factory=dict)
     tracer: Any = None
+    #: Output tokens one response may use. The ceiling scheduling divides against.
+    capacity: int = 16384
+    #: How many times a batch may be re-sized after being cut off before the capability
+    #: is called exhausted. Bounded because each attempt is billed.
+    max_resize_attempts: int = 3
     _compose: Any = field(default=None, repr=False)
+
+    def _plan_batch(
+        self,
+        capability: CapabilitySpec,
+        remaining: list[Any],
+        observations: list[dict[str, Any]],
+        *,
+        workspace: Path,
+        budget: Budget,
+        goal_id: str,
+    ) -> dict[str, Any]:
+        """Size the next batch, given what the earlier ones actually cost.
+
+        Called by the runtime rather than by the capability, because sizing a batch is
+        arithmetic over measured cost and §10 makes scheduling the runtime's job. It is
+        still an operator, so the decision is verified, journalled and traced like any
+        other — and no capability lists it, so none can schedule itself.
+        """
+        outcome = self.executor.execute(
+            Composition(
+                domain_id=capability.id,
+                invocations=(
+                    Invocation(
+                        invocation_id="schedule",
+                        operator="schedule.plan",
+                        parameters={
+                            "remaining": remaining,
+                            "capacity": self.capacity,
+                            "cost_per_item": capability.cost_per_item,
+                            "observations": observations,
+                        },
+                    ),
+                ),
+                rationale="size the next batch to fit one response",
+            ),
+            _scheduling_domain(capability),
+            stage_inputs={},
+            config={},
+            workspace=workspace,
+            budget=budget,
+            stage=goal_id,
+        )
+        planned = outcome[0].output if outcome and outcome[0].output else None
+        if not planned:
+            # Scheduling itself failed. Handing the whole set over is the honest
+            # fallback: it is what an undivided capability would have received anyway.
+            return {"needed": False, "batch": list(remaining), "batch_size": len(remaining)}
+        return dict(planned)
 
     def run(
         self,
@@ -167,13 +237,95 @@ class CapabilityRunner:
         workspace: Path,
         goal_id: str = "",
     ) -> CapabilityOutcome:
-        from ..compose import CompositionError, compose
-
+        working = dict(context)
         agent = self.agents.get(capability.id) or self.agents["*"]
         rounds: list[Round] = []
         produced: list[Artifact] = []
-        working = dict(context)
 
+        def outcome(*, exhausted: bool) -> CapabilityOutcome:
+            return CapabilityOutcome(
+                capability=capability.id,
+                rounds=tuple(rounds),
+                artifacts=tuple(produced),
+                context=working,
+                exhausted=exhausted,
+            )
+
+        divisible = working.get(capability.divides)
+        if capability.cost_per_item is None or not isinstance(divisible, list) or not divisible:
+            # Nothing measurable to divide — collision resolution and plan assembly need
+            # the whole set at once, and say so by declaring no per-item cost.
+            whole = self._pursue_batch(
+                capability=capability, request=request, working=working, rounds=rounds,
+                produced=produced, budget=budget, workspace=workspace, goal_id=goal_id,
+                agent=agent,
+            )
+            return outcome(exhausted=not whole.finished)
+
+        remaining: list[Any] = list(divisible)
+        observations: list[dict[str, Any]] = []
+        number = 0
+        attempts = 0
+        while remaining:
+            plan = self._plan_batch(
+                capability, remaining, observations,
+                workspace=workspace, budget=budget, goal_id=goal_id,
+            )
+            batch = plan["batch"]
+            number += 1
+            working[capability.divides] = batch
+            if plan["needed"] or observations:
+                # Only say so when it is true. A capability handed the whole set should
+                # not be told it is looking at batch one of one.
+                working["batch_number"] = number
+
+            spent = self._pursue_batch(
+                capability=capability, request=request, working=working, rounds=rounds,
+                produced=produced, budget=budget, workspace=workspace, goal_id=goal_id,
+                agent=agent,
+            )
+            observations.append(
+                {
+                    "items": len(batch),
+                    "completion_tokens": spent.completion_tokens,
+                    "truncated": spent.truncated,
+                    "failed": not spent.finished,
+                }
+            )
+            if spent.finished:
+                attempts = 0
+                remaining = remaining[len(batch) :]
+                continue
+
+            # It did not finish. If the reason was size, the observation just recorded
+            # will make the next plan smaller, so the same items are worth another go.
+            attempts += 1
+            if not spent.truncated or len(batch) <= 1 or attempts >= self.max_resize_attempts:
+                return outcome(exhausted=True)
+
+        return outcome(exhausted=False)
+
+    def _pursue_batch(
+        self,
+        *,
+        capability: CapabilitySpec,
+        request: str,
+        working: dict[str, Any],
+        rounds: list[Round],
+        produced: list[Artifact],
+        budget: Budget,
+        workspace: Path,
+        goal_id: str,
+        agent: CapabilityAgent,
+    ) -> BatchCost:
+        """Rounds within one batch, which are for self-correction rather than progress."""
+        from ..compose import CompositionError, compose
+
+        cost = BatchCost()
+
+        # Rounds already recorded for earlier batches are history this batch should see,
+        # but its own correction history is what matters for "what went wrong last time".
+        opened = len(rounds)
         for number in range(1, capability.max_rounds + 1):
             round_span = (
                 self.tracer.span(
@@ -195,10 +347,12 @@ class CapabilityRunner:
                     # The capability sees its own prior rounds. This is what lets it carry
                     # on rather than restart, and what makes "enough evidence" its
                     # judgment.
-                    prior=[item.digest_row() for item in rounds],
+                    prior=[item.digest_row() for item in rounds[opened:]],
                     catalog_summary=_catalog_summary(capability, self.config_root),
                 )
             except GatewayError as failure:
+                cost.observe(failure.usage)
+                cost.truncated = cost.truncated or failure.truncated
                 # A response that violates its contract is a failed round, not a failed
                 # run. The capability has rounds precisely so it can correct itself, and
                 # the reason reaches the next one.
@@ -224,6 +378,7 @@ class CapabilityRunner:
                 round_span.__exit__(None, None, None)
                 continue
 
+            cost.observe(usage)
             if self.usage_sink is not None:
                 self.usage_sink(f"capability.{capability.id}", usage, capability.prompt_version)
 
@@ -298,20 +453,25 @@ class CapabilityRunner:
                 )
 
             if organization.sufficient and denial is None:
-                return CapabilityOutcome(
-                    capability=capability.id,
-                    rounds=tuple(rounds),
-                    artifacts=tuple(produced),
-                    context=working,
-                )
+                cost.finished = True
+                return cost
 
-        return CapabilityOutcome(
-            capability=capability.id,
-            rounds=tuple(rounds),
-            artifacts=tuple(produced),
-            context=working,
-            exhausted=True,
-        )
+        return cost
+
+
+def _scheduling_domain(capability: CapabilitySpec) -> Any:
+    """The runtime's own grant for dividing work.
+
+    Narrow on purpose: it permits exactly one component, and no capability package lists
+    it, so scheduling cannot be reached from inside a capability.
+    """
+    from ..contracts import DomainSpec
+
+    return DomainSpec(
+        id=capability.id,
+        scope="divide work into batches that fit one response",
+        catalog=frozenset({"schedule.plan"}),
+    )
 
 
 def _as_domain(capability: CapabilitySpec) -> Any:

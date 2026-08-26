@@ -133,6 +133,16 @@ BUILTIN: dict[str, tuple[OperatorSpec, str]] = {
         ),
         (
             _spec(
+                "schedule.plan",
+                OperatorFamily.PURE_TRANSFORM,
+                "Size the next batch of work from what earlier batches actually cost, "
+                "or report that the whole set already fits.",
+                operation="plan_batch",
+            ),
+            "plan_batch",
+        ),
+        (
+            _spec(
                 "plan.assemble",
                 OperatorFamily.PURE_TRANSFORM,
                 "Assemble a ChangePlan and enforce balanced accounting.",

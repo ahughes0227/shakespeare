@@ -1,1 +1,8 @@
 window_size: 20
+# Headroom for structure and reasoning. A batch sized to the exact output ceiling
+# truncates, and a truncated response is a wasted round.
+reserve: 0.6
+# Adaptation limits. Cost rises fast and is corrected slowly, so one cheap batch cannot
+# undo the caution a truncated one earned.
+growth: 2.0
+backoff: 0.5

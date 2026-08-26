@@ -1,0 +1,370 @@
+"""Scheduling: an operator the runtime calls, and only when the work does not fit.
+
+Sizing a batch is arithmetic over measured cost, so it is answered by code rather than by
+a model deciding its own slicing every round — which is what a live sixty-invoice run
+spent thirteen of twenty-one rounds failing to do. It stays an operator so the decision
+is verified, journalled and traced; the runtime invokes it so no capability can schedule
+itself.
+
+The size is not fixed. A fixed size is only right when every item costs the same, and
+invoices do not — so each batch is measured and the next one is sized from what the last
+ones actually spent.
+"""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+from shakespeare.artifacts import ArtifactStore, Quality
+from shakespeare.capabilities import CapabilityRegistry, CapabilityRunner, CapabilitySpec
+from shakespeare.capabilities.runner import Organization
+from shakespeare.contracts import BudgetEnvelope, ErrorCode, Invocation
+from shakespeare.executor import Budget, Executor
+from shakespeare.gateway import GatewayError
+from shakespeare.operators.builtin import RUNTIME_ONLY, build_registry
+from shakespeare.operators.planning import plan_batch
+from shakespeare.verifier import Verifier
+
+DIVISIBLE = CapabilitySpec(
+    id="divisible",
+    version="1.0.0",
+    standing_goal="Report something about every item.",
+    catalog=frozenset({"text.normalize"}),
+    produces=("ExtractedContent",),
+    max_rounds=3,
+    cost_per_item=674,
+    divides="items",
+)
+WHOLE_SET = DIVISIBLE.model_copy(update={"id": "whole_set", "cost_per_item": None})
+
+
+def items(count: int) -> list[dict[str, str]]:
+    return [{"item_id": f"i{n}"} for n in range(count)]
+
+
+def spent(items_in_batch: int, tokens_each: int) -> dict[str, object]:
+    return {"items": items_in_batch, "completion_tokens": items_in_batch * tokens_each}
+
+
+class TestOnlyWhenNeeded:
+    def test_a_set_that_fits_needs_no_scheduling(self) -> None:
+        result = plan_batch(remaining=tuple(items(5)), capacity=16384, cost_per_item=674)
+        assert result["needed"] is False
+        assert result["batch_size"] == 5
+
+    def test_a_set_that_does_not_fit_is_divided(self) -> None:
+        result = plan_batch(remaining=tuple(items(60)), capacity=16384, cost_per_item=674)
+        assert result["needed"] is True
+        assert 0 < result["batch_size"] < 60
+        assert result["remaining_count"] == 60 - result["batch_size"]
+
+    def test_the_batch_is_taken_from_the_front(self) -> None:
+        """So the caller can advance by simply dropping what it handed over."""
+        result = plan_batch(remaining=tuple(items(60)), capacity=16384, cost_per_item=674)
+        assert result["batch"] == items(60)[: result["batch_size"]]
+
+    def test_headroom_is_left_for_structure(self) -> None:
+        """A batch sized to the exact ceiling truncates, and a truncated round is wasted."""
+        exact = 16384 // 674
+        assert (
+            plan_batch(remaining=tuple(items(200)), capacity=16384, cost_per_item=674)[
+                "batch_size"
+            ]
+            < exact
+        )
+
+    def test_an_expensive_item_gets_a_smaller_batch(self) -> None:
+        cheap = plan_batch(remaining=tuple(items(200)), capacity=16384, cost_per_item=100)
+        dear = plan_batch(remaining=tuple(items(200)), capacity=16384, cost_per_item=2000)
+        assert cheap["batch_size"] > dear["batch_size"]
+
+    def test_a_batch_is_never_empty(self) -> None:
+        result = plan_batch(remaining=tuple(items(3)), capacity=10, cost_per_item=100_000)
+        assert result["batch_size"] >= 1
+
+
+class TestItLearnsWhatTheWorkCosts:
+    """The declared cost is a starting estimate. Measurement replaces it."""
+
+    def test_cheap_items_speed_it_up(self) -> None:
+        start = plan_batch(remaining=tuple(items(200)), capacity=16384, cost_per_item=674)
+        faster = plan_batch(
+            remaining=tuple(items(200)),
+            capacity=16384,
+            cost_per_item=674,
+            observations=(spent(start["batch_size"], 200),),
+        )
+        assert faster["batch_size"] > start["batch_size"]
+
+    def test_expensive_items_slow_it_down(self) -> None:
+        start = plan_batch(remaining=tuple(items(200)), capacity=16384, cost_per_item=674)
+        slower = plan_batch(
+            remaining=tuple(items(200)),
+            capacity=16384,
+            cost_per_item=674,
+            observations=(spent(start["batch_size"], 2000),),
+        )
+        assert slower["batch_size"] < start["batch_size"]
+
+    def test_it_never_estimates_below_what_it_just_measured(self) -> None:
+        """Averaging a spike away is how a run walks back into the same truncation."""
+        result = plan_batch(
+            remaining=tuple(items(200)),
+            capacity=16384,
+            cost_per_item=100,
+            observations=(spent(14, 50), spent(14, 4000)),
+        )
+        assert result["estimate"] >= 4000
+
+    def test_a_truncated_batch_forces_a_smaller_one(self) -> None:
+        result = plan_batch(
+            remaining=tuple(items(200)),
+            capacity=16384,
+            cost_per_item=674,
+            observations=({"items": 14, "truncated": True},),
+        )
+        assert result["batch_size"] < 14
+
+    def test_a_failed_batch_is_not_repeated_at_the_same_size(self) -> None:
+        """Whatever went wrong, handing over the same amount again is not a new attempt."""
+        result = plan_batch(
+            remaining=tuple(items(200)),
+            capacity=16384,
+            cost_per_item=674,
+            observations=({"items": 14, "completion_tokens": 0, "failed": True},),
+        )
+        assert result["batch_size"] < 14
+
+    def test_repeated_truncation_keeps_shrinking(self) -> None:
+        history: list[dict[str, object]] = []
+        sizes = []
+        for _ in range(3):
+            size = plan_batch(
+                remaining=tuple(items(200)),
+                capacity=16384,
+                cost_per_item=674,
+                observations=tuple(history),
+            )["batch_size"]
+            sizes.append(size)
+            history.append({"items": size, "truncated": True})
+        assert sizes == sorted(sizes, reverse=True) and sizes[-1] < sizes[0]
+
+    def test_growth_is_capped_so_one_cheap_batch_cannot_undo_caution(self) -> None:
+        result = plan_batch(
+            remaining=tuple(items(500)),
+            capacity=16384,
+            cost_per_item=674,
+            observations=({"items": 3, "truncated": True}, spent(3, 5)),
+        )
+        assert result["batch_size"] <= 6
+
+    def test_a_ceiling_once_proven_still_binds(self) -> None:
+        """A cheap batch after a truncation does not license going back over the line."""
+        result = plan_batch(
+            remaining=tuple(items(500)),
+            capacity=16384,
+            cost_per_item=674,
+            observations=(
+                {"items": 20, "truncated": True},
+                spent(10, 20),
+                spent(10, 20),
+                spent(10, 20),
+            ),
+        )
+        assert result["batch_size"] <= 10
+
+
+class TestTheRuntimeSchedules:
+    def _runner(self, tmp_path: Path, agent):
+        operators = build_registry()
+        return CapabilityRunner(
+            executor=Executor(operators, Verifier(operators)),
+            agents={"*": agent},
+            artifacts=ArtifactStore(root=tmp_path / "artifacts", run_id="r"),
+            capacity=16384,
+        )
+
+    class _Recorder:
+        """Records how many items it was handed each time it was asked."""
+
+        def __init__(self) -> None:
+            self.batch_sizes: list[int] = []
+
+        def organize(self, *, capability, request, artifacts, context, prior, catalog_summary):
+            self.batch_sizes.append(context.get("items", {}).get("count", 0))
+            return (
+                Organization(
+                    invocations=(
+                        Invocation(
+                            invocation_id="n",
+                            operator="text.normalize",
+                            parameters={"values": {"v": "x"}},
+                        ),
+                    ),
+                    intent="handle this batch",
+                    sufficient=True,
+                    publishes="ExtractedContent",
+                    quality=Quality.PARTIAL,
+                ),
+                None,
+            )
+
+    def test_a_large_set_is_handed_over_one_batch_at_a_time(self, tmp_path: Path) -> None:
+        agent = self._Recorder()
+        outcome = self._runner(tmp_path, agent).run(
+            capability=DIVISIBLE,
+            request="report on them",
+            context={"items": items(60)},
+            budget=Budget(envelope=BudgetEnvelope(operator_calls="200"), items=60),
+            workspace=tmp_path / "work",
+        )
+        assert len(agent.batch_sizes) > 1, "the work was divided"
+        assert sum(agent.batch_sizes) == 60, "and every item was handed over exactly once"
+        assert outcome.sufficient
+
+    def test_a_small_set_is_handed_over_whole(self, tmp_path: Path) -> None:
+        """One batch, and the capability is not told it is one of many."""
+        agent = self._Recorder()
+        self._runner(tmp_path, agent).run(
+            capability=DIVISIBLE,
+            request="report on them",
+            context={"items": items(5)},
+            budget=Budget(envelope=BudgetEnvelope(), items=5),
+            workspace=tmp_path / "work",
+        )
+        assert agent.batch_sizes == [5]
+
+    def test_a_whole_set_capability_is_never_divided(self, tmp_path: Path) -> None:
+        """Collision resolution and plan assembly need the whole set at once."""
+        agent = self._Recorder()
+        self._runner(tmp_path, agent).run(
+            capability=WHOLE_SET,
+            request="do it all at once",
+            context={"items": items(500)},
+            budget=Budget(envelope=BudgetEnvelope(operator_calls="200"), items=500),
+            workspace=tmp_path / "work",
+        )
+        assert agent.batch_sizes == [500]
+
+    def test_rounds_correct_mistakes_rather_than_advance_work(self, tmp_path: Path) -> None:
+        """Progress is the runtime's job; a round exists to fix a bad response."""
+
+        class Stumbling:
+            def __init__(self) -> None:
+                self.calls = 0
+
+            def organize(self, *, capability, request, artifacts, context, prior, catalog_summary):
+                self.calls += 1
+                # Fail the first round of the first batch, then behave.
+                bad = self.calls == 1
+                return (
+                    Organization(
+                        invocations=(
+                            Invocation(
+                                invocation_id="n",
+                                operator="fs.commit" if bad else "text.normalize",
+                                parameters={} if bad else {"values": {"v": "x"}},
+                            ),
+                        ),
+                        intent="retry" if not bad else "reach outside",
+                        sufficient=not bad,
+                        publishes=None if bad else "ExtractedContent",
+                    ),
+                    None,
+                )
+
+        agent = Stumbling()
+        outcome = self._runner(tmp_path, agent).run(
+            capability=DIVISIBLE,
+            request="report",
+            context={"items": items(5)},
+            budget=Budget(envelope=BudgetEnvelope(), items=5),
+            workspace=tmp_path / "work",
+        )
+        assert outcome.sufficient, "the second round corrected the first"
+        assert outcome.rounds[0].denial is not None
+
+
+    def test_a_batch_cut_off_is_retried_smaller(self, tmp_path: Path) -> None:
+        """The whole point of the feedback: too big is a recoverable mistake."""
+
+        class Truncating:
+            def __init__(self) -> None:
+                self.sizes: list[int] = []
+
+            def organize(self, *, capability, request, artifacts, context, prior, catalog_summary):
+                size = context.get("items", {}).get("count", 0)
+                self.sizes.append(size)
+                if size > 4:
+                    raise GatewayError(
+                        "cut off at the limit", ErrorCode.MODEL_PERMANENT, truncated=True
+                    )
+                return (
+                    Organization(
+                        invocations=(
+                            Invocation(
+                                invocation_id="n",
+                                operator="text.normalize",
+                                parameters={"values": {"v": "x"}},
+                            ),
+                        ),
+                        intent="handle this batch",
+                        sufficient=True,
+                        publishes="ExtractedContent",
+                    ),
+                    None,
+                )
+
+        agent = Truncating()
+        outcome = self._runner(tmp_path, agent).run(
+            capability=DIVISIBLE,
+            request="report",
+            context={"items": items(24)},
+            budget=Budget(envelope=BudgetEnvelope(operator_calls="400"), items=24),
+            workspace=tmp_path / "work",
+        )
+        assert min(agent.sizes) <= 4, "it backed off after being cut off"
+        assert outcome.sufficient, "and then finished the work"
+
+    def test_a_batch_that_keeps_failing_is_given_up_on(self, tmp_path: Path) -> None:
+        """Each retry is billed, so backing off cannot go on forever."""
+
+        class AlwaysTruncating:
+            def __init__(self) -> None:
+                self.calls = 0
+
+            def organize(self, *, capability, request, artifacts, context, prior, catalog_summary):
+                self.calls += 1
+                raise GatewayError("cut off", ErrorCode.MODEL_PERMANENT, truncated=True)
+
+        agent = AlwaysTruncating()
+        outcome = self._runner(tmp_path, agent).run(
+            capability=DIVISIBLE,
+            request="report",
+            context={"items": items(24)},
+            budget=Budget(envelope=BudgetEnvelope(operator_calls="400"), items=24),
+            workspace=tmp_path / "work",
+        )
+        assert outcome.exhausted
+        assert agent.calls < 40, "it stopped rather than retrying indefinitely"
+
+
+class TestContainment:
+    def test_no_capability_can_schedule_itself(self) -> None:
+        """The runtime divides the work; a capability decides what the answer is."""
+        registry = CapabilityRegistry()
+        for capability_id in registry.ids():
+            assert "schedule.plan" not in registry.get(capability_id).catalog
+
+    def test_scheduling_is_not_a_mutation(self) -> None:
+        assert "schedule.plan" not in RUNTIME_ONLY
+
+    def test_only_a_measured_capability_is_divided(self) -> None:
+        """cost_per_item is measured, so an unset one means 'this is not divisible'."""
+        registry = CapabilityRegistry()
+        divisible = {
+            capability_id
+            for capability_id in registry.ids()
+            if registry.get(capability_id).cost_per_item is not None
+        }
+        assert divisible == {"acquire", "resolve"}

@@ -317,6 +317,18 @@ def _next_window(arguments: dict[str, Any], workspace: Path) -> dict[str, Any]:
     )
 
 
+def _plan_batch(arguments: dict[str, Any], workspace: Path) -> dict[str, Any]:
+    return planning.plan_batch(
+        remaining=tuple(arguments.get("remaining") or arguments.get("items") or ()),
+        capacity=int(arguments["capacity"]),
+        cost_per_item=int(arguments["cost_per_item"]),
+        observations=tuple(arguments.get("observations") or ()),
+        reserve=float(_cfg(arguments, "schedule", "reserve", 0.6)),
+        growth=float(_cfg(arguments, "schedule", "growth", 2.0)),
+        backoff=float(_cfg(arguments, "schedule", "backoff", 0.5)),
+    )
+
+
 def _obligation_check(arguments: dict[str, Any], workspace: Path) -> dict[str, Any]:
     result = planning.run_check(
         arguments["obligation_id"], arguments["check"], arguments.get("payload", {})
@@ -387,6 +399,7 @@ _ALLOWLISTS: dict[OperatorFamily, dict[str, Operation]] = {
         "normalize": _normalize,
         "collision_resolve": _collision_resolve,
         "next_window": _next_window,
+        "plan_batch": _plan_batch,
         "plan_assemble": _plan_assemble,
         "obligation_check": _obligation_check,
     },

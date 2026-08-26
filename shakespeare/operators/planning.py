@@ -358,3 +358,70 @@ def next_window(
         "completed_count": len(done),
         "exhausted": len(remaining) <= len(window),
     }
+
+
+def plan_batch(
+    *,
+    remaining: tuple[dict[str, Any], ...],
+    capacity: int,
+    cost_per_item: int,
+    observations: tuple[dict[str, Any], ...] = (),
+    reserve: float = 0.6,
+    growth: float = 2.0,
+    backoff: float = 0.5,
+) -> dict[str, Any]:
+    """Size the next batch of work from what the last ones actually cost.
+
+    Returns `needed: False` when everything left already fits, and the caller then hands
+    the whole set over undivided.
+
+    A fixed batch size is only right when every item costs the same, which invoices do
+    not: a one-line receipt and a thirty-line statement differ by an order of magnitude.
+    So `cost_per_item` is a starting estimate, and each observation replaces it with
+    measurement. `observations` carry `items`, `completion_tokens`, `truncated` and
+    `failed` — the runtime's record of what each batch actually cost.
+
+    The adjustment is deliberately asymmetric. Cost rises fast and is corrected slowly:
+    an estimate never falls below what was just measured, a truncation proves the true
+    cost is at least the whole ceiling divided across that batch, and any batch that hit
+    a ceiling caps every later one. Growth is capped at `growth`× the last batch, so one
+    cheap batch cannot undo the caution earned by an expensive one.
+    """
+    usable = max(1, int(capacity * reserve))
+    estimate = float(max(1, cost_per_item))
+    last_size = 0
+    #: A batch size proven too large. Everything after it stays below.
+    ceiling: int | None = None
+
+    for observation in observations:
+        size = int(observation.get("items") or 0)
+        if size <= 0:
+            continue
+        last_size = size
+        spent = int(observation.get("completion_tokens") or 0)
+        if observation.get("truncated"):
+            # It ran out of room, so the real cost is at least the ceiling spread over
+            # the batch — more than whatever we had estimated.
+            estimate = max(estimate, capacity / size)
+            ceiling = size if ceiling is None else min(ceiling, size)
+        elif spent > 0:
+            measured = spent / size
+            # Half the weight on history, but never estimate below what was just seen.
+            estimate = max((estimate + measured) / 2, measured)
+        if observation.get("failed"):
+            ceiling = size if ceiling is None else min(ceiling, size)
+
+    size = max(1, int(usable // estimate))
+    if ceiling is not None:
+        size = min(size, max(1, int(ceiling * backoff)))
+    if last_size:
+        size = min(size, max(1, int(last_size * growth)))
+    size = min(size, len(remaining))
+
+    return {
+        "needed": size < len(remaining),
+        "batch": list(remaining[:size]),
+        "batch_size": size,
+        "remaining_count": max(0, len(remaining) - size),
+        "estimate": int(round(estimate)),
+    }

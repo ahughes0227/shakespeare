@@ -162,6 +162,10 @@ class Runtime:
                 ),
                 grants=self.grants,
                 tracer=tracer,
+                # The ceiling scheduling divides against is the model's own.
+                capacity=getattr(
+                    getattr(self.planner, "profile", None), "max_output_tokens", 16384
+                ),
             ),
             artifacts=artifacts,
             audit=self.audit,

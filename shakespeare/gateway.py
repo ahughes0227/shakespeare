@@ -25,10 +25,18 @@ T = TypeVar("T", bound=BaseModel)
 
 class GatewayError(RuntimeError):
     def __init__(
-        self, message: str, code: ErrorCode, usage: ModelUsage | None = None
+        self,
+        message: str,
+        code: ErrorCode,
+        usage: ModelUsage | None = None,
+        *,
+        truncated: bool = False,
     ) -> None:
         super().__init__(message)
         self.code = code
+        #: The response hit the output ceiling. Distinct from every other failure
+        #: because it says something the scheduler can act on: the batch was too big.
+        self.truncated = truncated
         #: Present when the provider was reached and billed but the response was
         #: unusable. Without it a failed parse vanishes from the bill while still
         #: costing money.
@@ -129,6 +137,7 @@ class LiteLLMGateway:
                 f"or raise max_output_tokens.",
                 ErrorCode.MODEL_PERMANENT,
                 usage=_usage_of(response, profile),
+                truncated=True,
             )
         hidden = getattr(response, "_hidden_params", {}) or {}
         usage_data = getattr(response, "usage", None)

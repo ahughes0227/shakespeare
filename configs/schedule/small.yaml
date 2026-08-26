@@ -1,2 +1,2 @@
-# For a stage whose per-item response is large, or a model with a tight output ceiling.
 window_size: 8
+reserve: 0.35

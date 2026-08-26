@@ -104,6 +104,18 @@ class WindowInput(OperatorInput):
     )
 
 
+class BatchPlanInput(OperatorInput):
+    remaining: list[dict[str, Any]] | None = Field(
+        default=None, description="Work not yet handed over."
+    )
+    items: list[dict[str, Any]] | None = None
+    capacity: int = Field(description="Output tokens one response may use.")
+    cost_per_item: int = Field(description="Starting estimate of one item's cost.")
+    observations: list[dict[str, Any]] | None = Field(
+        default=None, description="What earlier batches actually cost."
+    )
+
+
 class ObligationCheckInput(OperatorInput):
     obligation_id: str
     check: str
@@ -122,6 +134,7 @@ INPUT_MODELS: dict[str, type[OperatorInput]] = {
     "name.render": RenderInput,
     "name.collide": CollisionInput,
     "batch.window": WindowInput,
+    "schedule.plan": BatchPlanInput,
     "plan.assemble": PlanAssembleInput,
     "check.assert": ObligationCheckInput,
 }
@@ -140,6 +153,7 @@ OUTPUT_KEYS: dict[str, list[str]] = {
     "name.render": ["results", "candidates", "unrendered"],
     "name.collide": ["resolutions"],
     "batch.window": ["window", "window_size", "remaining", "completed_count", "exhausted"],
+    "schedule.plan": ["needed", "batch", "batch_size", "remaining_count", "estimate"],
     "plan.assemble": ["plan", "entries", "scanned"],
     "check.assert": ["obligation_id", "passed", "detail"],
 }

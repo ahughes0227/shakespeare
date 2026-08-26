@@ -37,6 +37,12 @@ class CapabilitySpec(Contract):
     #: How many times it may reorganise internally before giving up. This is where
     #: adaptive meta-organization lives (§8), and this is its bound.
     max_rounds: int = Field(default=4, ge=1, le=100)
+    #: Output tokens one item costs this capability, measured rather than guessed. Set it
+    #: only for a capability that reports something per item: that is what makes the work
+    #: divisible. A whole-set capability leaves it unset and is never scheduled.
+    cost_per_item: int | None = Field(default=None, ge=1, le=100_000)
+    #: The working key holding the set to divide.
+    divides: str = "items"
     prompt_version: str = "1.0.0"
 
     @property
