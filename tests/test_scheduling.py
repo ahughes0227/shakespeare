@@ -569,3 +569,83 @@ class TestTheBatchIsShownNotDescribed:
         """Nothing sized the set for it, so handing it over whole could not be safe."""
         seen = self._seen(tmp_path, WHOLE_SET, {"items": items(500)})
         assert seen[0]["items"] == {"kind": "list", "count": 500}
+
+
+class TestItWeighsItemsRatherThanCountingThem:
+    """A one-line receipt and a forty-line statement are both one item.
+
+    ADR 0003 left this open: batch cost was measured per capability, so a corpus with
+    real variance got every batch sized for the average and the heavy ones truncated.
+    """
+
+    @staticmethod
+    def _weighted(sizes: list[int]) -> tuple[tuple, tuple]:
+        rows = tuple({"item_id": f"i{n}"} for n in range(len(sizes)))
+        return rows, tuple(sizes)
+
+    def test_a_heavy_run_of_items_gets_a_smaller_batch(self) -> None:
+        light, weights_light = self._weighted([10] * 100)
+        heavy, weights_heavy = self._weighted([1000] * 100)
+        thin = plan_batch(
+            remaining=light, weights=weights_light, capacity=16384, cost_per_item=674
+        )
+        thick = plan_batch(
+            remaining=heavy, weights=weights_heavy, capacity=16384, cost_per_item=674
+        )
+        # Same declared cost, same count, same ceiling: only the material differs.
+        assert thin["batch_size"] == thick["batch_size"], "no history yet, so no evidence"
+        # Once one batch has been measured, weight is what the next one is sized by.
+        seen = ({"items": 10, "weight": 10 * 1000, "completion_tokens": 8000},)
+        assert (
+            plan_batch(
+                remaining=heavy,
+                weights=weights_heavy,
+                capacity=16384,
+                cost_per_item=674,
+                observations=seen,
+            )["batch_size"]
+            < plan_batch(
+                remaining=light,
+                weights=weights_light,
+                capacity=16384,
+                cost_per_item=674,
+                observations=seen,
+            )["batch_size"]
+        )
+
+    def test_a_mixed_set_takes_more_light_items_than_heavy_ones(self) -> None:
+        """The batch is filled by material, so its size varies with what it meets."""
+        mixed, weights = self._weighted([50] * 20 + [5000] * 20)
+        first = plan_batch(
+            remaining=mixed,
+            weights=weights,
+            capacity=16384,
+            cost_per_item=674,
+            observations=({"items": 5, "weight": 250, "completion_tokens": 500},),
+        )
+        # It should clear a good part of the light run before the heavy ones stop it.
+        assert first["batch_size"] > 5
+        assert first["batch_size"] <= 21, "and it must stop once the heavy items begin"
+
+    def test_the_batch_reports_what_it_carried(self) -> None:
+        rows, weights = self._weighted([100] * 30)
+        plan = plan_batch(
+            remaining=rows, weights=weights, capacity=16384, cost_per_item=674
+        )
+        assert plan["batch_weight"] == plan["batch_size"] * 100
+
+    def test_no_weights_is_the_old_count_behaviour_exactly(self) -> None:
+        rows = tuple({"item_id": f"i{n}"} for n in range(200))
+        assert (
+            plan_batch(remaining=rows, capacity=16384, cost_per_item=674)["batch_size"]
+            == plan_batch(
+                remaining=rows, weights=(1,) * 200, capacity=16384, cost_per_item=674
+            )["batch_size"]
+        )
+
+    def test_one_item_over_the_allowance_is_still_attempted(self) -> None:
+        """Refusing to hand it over would stall the run; the backoff is what handles it."""
+        rows, weights = self._weighted([10_000_000])
+        assert plan_batch(
+            remaining=rows, weights=weights, capacity=16384, cost_per_item=674
+        )["batch_size"] == 1

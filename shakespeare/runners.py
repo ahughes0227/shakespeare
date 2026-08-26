@@ -323,6 +323,7 @@ def _plan_batch(arguments: dict[str, Any], workspace: Path) -> dict[str, Any]:
         capacity=int(arguments["capacity"]),
         cost_per_item=int(arguments["cost_per_item"]),
         observations=tuple(arguments.get("observations") or ()),
+        weights=tuple(arguments.get("weights") or ()),
         reserve=float(_cfg(arguments, "schedule", "reserve", 0.6)),
         growth=float(_cfg(arguments, "schedule", "growth", 2.0)),
         backoff=float(_cfg(arguments, "schedule", "backoff", 0.5)),

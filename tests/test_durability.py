@@ -228,16 +228,24 @@ class TestUnsatisfiableGoal:
         result = runtime.run(request, commit=False)
 
         attempts = [a for a in result.attempts if a.goal_id == "inventoried"]
-        assert len(attempts) == runtime_max_attempts(runtime), "the goal is retried, not abandoned"
+        assert len(attempts) > 1, "the goal is retried, not abandoned on one failure"
         audit.close()
 
+    def test_a_goal_that_achieves_nothing_is_not_attempted_a_third_time(
+        self, tmp_path: Path
+    ) -> None:
+        """Repeating an attempt that changed nothing is spending money on a coin flip."""
+        from shakespeare.capabilities.runner import Organization
 
-def runtime_max_attempts(runtime) -> int:
-    from shakespeare.control import Controller
+        agent = FakeCapabilityAgent()
+        agent.queue("survey", Organization(intent="produce nothing", sufficient=True))
+        runtime, request, audit, _ = build(tmp_path, agents={"*": agent})
+        result = runtime.run(request, commit=False)
 
-    return Controller.max_goal_attempts if isinstance(
-        Controller.max_goal_attempts, int
-    ) else 3
+        attempts = [a for a in result.attempts if a.goal_id == "inventoried"]
+        assert len(attempts) == 2, "one attempt, one retry, then the repetition is seen"
+        assert "achieved nothing new" in (result.detail or "")
+        audit.close()
 
 
 @pytest.mark.skipif(

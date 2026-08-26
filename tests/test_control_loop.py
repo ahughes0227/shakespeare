@@ -134,7 +134,8 @@ class TestGates:
         runtime, request, audit, _ = build(tmp_path, agents=agents)
         result = runtime.run(request, commit=False)
         assert result.outcome == "aborted"
-        assert "could not be satisfied" in result.detail
+        assert "achieved nothing new" in result.detail
+        assert "inventoried" in result.detail
         assert not Path(request.output_root).exists()
         audit.close()
 
@@ -294,3 +295,61 @@ class TestStagingPrecedesReview:
         assert staged, "the plan was materialised"
         assert len(staged) == len(result.plan.entries)
         audit.close()
+
+
+class TestAttemptsAreBoundedByProgressNotACount:
+    """ADR 0003 left max_goal_attempts as a chosen number rather than a measured one.
+
+    The number was never the right control. An attempt that achieved nothing will not
+    achieve anything next time either, and one that is still making progress deserves
+    another go — a fixed count gets both cases wrong in opposite directions.
+    """
+
+    def test_a_goal_still_making_progress_is_allowed_to_continue(
+        self, tmp_path: Path
+    ) -> None:
+        """Progress means the retry is worth paying for, whatever the attempt number."""
+        from shakespeare.control import Controller
+
+        seen = []
+        verdict = _verdict("still_short")
+        context: dict = {"candidates": []}
+        for _ in range(5):
+            context["candidates"] = context["candidates"] + [{"item_id": "x"}]
+            seen.append(_achievement_of(context, verdict))
+        assert len(set(seen)) == len(seen), "each attempt reads as a different position"
+        assert Controller.max_goal_attempts > 3, "and the ceiling leaves room for them"
+
+    def test_two_attempts_that_reach_the_same_place_are_the_same_attempt(self) -> None:
+        stuck = _verdict("balanced")
+        context = {"candidates": [{"item_id": "x"}], "unrendered": []}
+        assert _achievement_of(context, stuck) == _achievement_of(dict(context), stuck)
+
+    def test_a_different_failure_is_not_the_same_place(self) -> None:
+        """Same evidence, different objection: the run has learned something."""
+        context = {"candidates": [{"item_id": "x"}]}
+        assert _achievement_of(context, _verdict("balanced")) != _achievement_of(
+            context, _verdict("collisions")
+        )
+
+    def test_runtime_bookkeeping_is_not_mistaken_for_progress(self) -> None:
+        """Underscored keys are the runtime talking to itself, not work achieved."""
+        verdict = _verdict("balanced")
+        bare = {"candidates": [{"item_id": "x"}]}
+        assert _achievement_of(bare, verdict) == _achievement_of(
+            {**bare, "_completed": ["x", "y", "z"]}, verdict
+        )
+
+
+def _verdict(*failed_checks: str):
+    return type(
+        "Verdict",
+        (),
+        {"failed_checks": failed_checks, "missing_kinds": (), "rationale": "short"},
+    )()
+
+
+def _achievement_of(context, result):
+    from shakespeare.control import _achievement
+
+    return _achievement(context, result)

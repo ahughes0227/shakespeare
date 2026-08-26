@@ -366,6 +366,7 @@ def plan_batch(
     capacity: int,
     cost_per_item: int,
     observations: tuple[dict[str, Any], ...] = (),
+    weights: tuple[int, ...] = (),
     reserve: float = 0.6,
     growth: float = 2.0,
     backoff: float = 0.5,
@@ -375,53 +376,73 @@ def plan_batch(
     Returns `needed: False` when everything left already fits, and the caller then hands
     the whole set over undivided.
 
-    A fixed batch size is only right when every item costs the same, which invoices do
-    not: a one-line receipt and a thirty-line statement differ by an order of magnitude.
-    So `cost_per_item` is a starting estimate, and each observation replaces it with
-    measurement. `observations` carry `items`, `completion_tokens`, `truncated` and
-    `failed` — the runtime's record of what each batch actually cost.
+    Cost is measured against `weights` — how much material each item carries — rather
+    than against a count. A one-line receipt and a forty-line statement are both one
+    item, and sizing by count gives the batch of statements the average's budget and
+    truncates it. `cost_per_item` remains the declared starting estimate; it is converted
+    to a rate per unit of material using the mean weight of the set, so a capability still
+    declares one measured number. Omit `weights` and every item weighs the same, which is
+    the count behaviour exactly.
 
     The adjustment is deliberately asymmetric. Cost rises fast and is corrected slowly:
     an estimate never falls below what was just measured, a truncation proves the true
-    cost is at least the whole ceiling divided across that batch, and any batch that hit
-    a ceiling caps every later one. Growth is capped at `growth`× the last batch, so one
-    cheap batch cannot undo the caution earned by an expensive one.
+    cost is at least the whole ceiling divided across that batch's material, and any
+    batch that hit a ceiling caps every later one. Growth is capped at `growth`x the last
+    batch, so one cheap batch cannot undo the caution an expensive one earned.
     """
     usable = max(1, int(capacity * reserve))
-    estimate = float(max(1, cost_per_item))
-    last_size = 0
-    #: A batch size proven too large. Everything after it stays below.
-    ceiling: int | None = None
+    measured_weights = _weigh(remaining, weights)
+    mean = sum(measured_weights) / max(1, len(measured_weights))
+    # Per unit of material, so a heavy item is charged for what it carries.
+    rate = max(1e-9, float(max(1, cost_per_item)) / max(1.0, mean))
+    last_weight = 0.0
+    #: A batch weight proven too large. Everything after it stays below.
+    ceiling: float | None = None
 
     for observation in observations:
-        size = int(observation.get("items") or 0)
-        if size <= 0:
+        weight = float(observation.get("weight") or observation.get("items") or 0)
+        if weight <= 0:
             continue
-        last_size = size
+        last_weight = weight
         spent = int(observation.get("completion_tokens") or 0)
         if observation.get("truncated"):
-            # It ran out of room, so the real cost is at least the ceiling spread over
-            # the batch — more than whatever we had estimated.
-            estimate = max(estimate, capacity / size)
-            ceiling = size if ceiling is None else min(ceiling, size)
+            # It ran out of room, so the real rate is at least the ceiling spread over
+            # the material that batch carried — more than whatever we had estimated.
+            rate = max(rate, capacity / weight)
+            ceiling = weight if ceiling is None else min(ceiling, weight)
         elif spent > 0:
-            measured = spent / size
+            observed = spent / weight
             # Half the weight on history, but never estimate below what was just seen.
-            estimate = max((estimate + measured) / 2, measured)
+            rate = max((rate + observed) / 2, observed)
         if observation.get("failed"):
-            ceiling = size if ceiling is None else min(ceiling, size)
+            ceiling = weight if ceiling is None else min(ceiling, weight)
 
-    size = max(1, int(usable // estimate))
+    allowance = usable / rate
     if ceiling is not None:
-        size = min(size, max(1, int(ceiling * backoff)))
-    if last_size:
-        size = min(size, max(1, int(last_size * growth)))
-    size = min(size, len(remaining))
+        allowance = min(allowance, max(1.0, ceiling * backoff))
+    if last_weight:
+        allowance = min(allowance, max(1.0, last_weight * growth))
+
+    size, carried = 0, 0.0
+    for weight in measured_weights:
+        # Always take one: a single item over the allowance still has to be attempted,
+        # and the truncation backoff is what handles it.
+        if size and carried + weight > allowance:
+            break
+        size, carried = size + 1, carried + weight
 
     return {
         "needed": size < len(remaining),
         "batch": list(remaining[:size]),
         "batch_size": size,
+        "batch_weight": int(carried),
         "remaining_count": max(0, len(remaining) - size),
-        "estimate": int(round(estimate)),
+        "estimate": int(round(carried * rate)),
     }
+
+
+def _weigh(items: tuple[dict[str, Any], ...], weights: tuple[int, ...]) -> list[float]:
+    """One weight per item, defaulting to equal weight when none was measured."""
+    if len(weights) == len(items) and any(weights):
+        return [float(max(1, weight)) for weight in weights]
+    return [1.0] * len(items)

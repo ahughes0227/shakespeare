@@ -114,6 +114,9 @@ class BatchPlanInput(OperatorInput):
     observations: list[dict[str, Any]] | None = Field(
         default=None, description="What earlier batches actually cost."
     )
+    weights: list[int] | None = Field(
+        default=None, description="How much material each remaining item carries."
+    )
 
 
 class ObligationCheckInput(OperatorInput):
@@ -153,7 +156,14 @@ OUTPUT_KEYS: dict[str, list[str]] = {
     "name.render": ["results", "candidates", "unrendered"],
     "name.collide": ["resolutions"],
     "batch.window": ["window", "window_size", "remaining", "completed_count", "exhausted"],
-    "schedule.plan": ["needed", "batch", "batch_size", "remaining_count", "estimate"],
+    "schedule.plan": [
+        "needed",
+        "batch",
+        "batch_size",
+        "batch_weight",
+        "remaining_count",
+        "estimate",
+    ],
     "plan.assemble": ["plan", "entries", "scanned"],
     "check.assert": ["obligation_id", "passed", "detail"],
 }

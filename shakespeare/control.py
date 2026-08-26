@@ -100,8 +100,10 @@ class Controller:
     planner: Any
     workspace: Path
     tracer: Tracer | None = None
-    #: How many times one goal may be attempted before the run gives up on it.
-    max_goal_attempts: int = 3
+    #: The ceiling on attempts at one goal. Rarely what stops a run: an attempt that
+    #: achieves nothing new stops it sooner, so this only bounds a goal that keeps
+    #: making progress without ever arriving.
+    max_goal_attempts: int = 6
     #: Called with the working context each time a goal is satisfied. The loop announces
     #: that something became true; what to do about it is the runtime's business, because
     #: acting on it may mean writing and the loop never writes.
@@ -123,6 +125,8 @@ class Controller:
         #: goal id -> why its last attempt was rejected.
         rejected: dict[str, dict[str, Any]] = {}
         tried: dict[str, int] = {}
+        #: goal id -> what its last rejected attempt had achieved.
+        standing: dict[str, tuple[Any, ...]] = {}
 
         while True:
             open_goals = graph.open_goals(frozenset(satisfied))
@@ -213,8 +217,23 @@ class Controller:
                     "missing_evidence": list(result.missing_kinds),
                     "rationale": result.rationale,
                 }
+                # An attempt that changed nothing will not change anything next time
+                # either. Counting attempts bounds the damage; noticing that one achieved
+                # nothing is what actually stops the loop, and it stops it at the first
+                # repetition rather than at an arbitrary count.
+                reached = _achievement(self.context, result)
+                if standing.get(goal.id) == reached:
+                    return (
+                        tuple(attempts),
+                        frozenset(satisfied),
+                        f"goal {goal.id!r} was attempted again and achieved nothing new: "
+                        f"{result.rationale}",
+                    )
+                standing[goal.id] = reached
 
     # -- selection ---------------------------------------------------------------------
+
+
 
     def _choose_goal(self, open_goals: tuple[Goal, ...], graph: GoalGraph) -> Goal:
         """Which open goal to work next.
@@ -305,3 +324,19 @@ __all__ = [
     "new_run_id",
     "started_at",
 ]
+
+
+def _achievement(context: dict[str, Any], result: Any) -> tuple[Any, ...]:
+    """What an attempt actually got to, in a form two attempts can be compared by.
+
+    Sizes rather than contents: an attempt that resolved one more item has moved, and one
+    that produced the same amount of the same evidence and failed the same checks has not.
+    Contents would be stricter and worse — a model rephrasing one field would read as
+    progress forever.
+    """
+    evidence = tuple(
+        (key, len(value))
+        for key, value in sorted(context.items())
+        if isinstance(value, list) and not key.startswith("_")
+    )
+    return (evidence, tuple(result.failed_checks), tuple(result.missing_kinds))

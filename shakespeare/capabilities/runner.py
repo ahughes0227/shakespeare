@@ -192,6 +192,7 @@ class CapabilityRunner:
         self,
         capability: CapabilitySpec,
         remaining: list[Any],
+        weights: list[int],
         observations: list[dict[str, Any]],
         *,
         workspace: Path,
@@ -214,6 +215,7 @@ class CapabilityRunner:
                     operator="schedule.plan",
                     parameters={
                         "remaining": remaining,
+                        "weights": weights,
                         "capacity": self.capacity,
                         "cost_per_item": capability.cost_per_item,
                         # Copied, because the live list keeps growing and the journal
@@ -239,7 +241,12 @@ class CapabilityRunner:
         if not planned:
             # Scheduling itself failed. Handing the whole set over is the honest
             # fallback: it is what an undivided capability would have received anyway.
-            return {"needed": False, "batch": list(remaining), "batch_size": len(remaining)}
+            return {
+                "needed": False,
+                "batch": list(remaining),
+                "batch_size": len(remaining),
+                "batch_weight": sum(weights),
+            }
         return dict(planned)
 
     def run(
@@ -305,7 +312,8 @@ class CapabilityRunner:
 
         while remaining:
             plan = self._plan_batch(
-                capability, remaining, observations,
+                capability, remaining, _weigh(remaining, working, capability.divides),
+                observations,
                 workspace=workspace, budget=budget, goal_id=goal_id, journal=scheduling,
             )
             batch = plan["batch"]
@@ -329,6 +337,7 @@ class CapabilityRunner:
             observations.append(
                 {
                     "items": len(batch),
+                    "weight": plan.get("batch_weight") or len(batch),
                     "completion_tokens": spent.completion_tokens,
                     "truncated": spent.truncated,
                     "failed": not spent.finished,
@@ -609,6 +618,34 @@ def _record_progress(working: dict[str, Any]) -> None:
                     seen.append(str(item_id))
                     known.add(item_id)
     working["_completed"] = seen
+
+
+def _weigh(items: list[Any], working: dict[str, Any], divides: str) -> list[int]:
+    """How much material each item carries into one response.
+
+    Measured rather than declared, and measured as the thing that actually drives cost:
+    the size of what will be put in front of the model for that item — its own row plus
+    every per-item row of evidence that comes with it. An item is not a unit of work; a
+    one-line receipt and a forty-line statement are both one item and differ by an order
+    of magnitude.
+    """
+    from ..contracts import canonical_json
+
+    evidence: dict[str, int] = {}
+    for key, value in working.items():
+        if key.startswith("_") or key == divides or not isinstance(value, list):
+            continue
+        for row in value:
+            if isinstance(row, dict) and (item_id := row.get("item_id")) is not None:
+                evidence[str(item_id)] = evidence.get(str(item_id), 0) + len(
+                    canonical_json(row)
+                )
+    return [
+        max(1, len(canonical_json(row)) + evidence.get(str(row.get("item_id")), 0))
+        if isinstance(row, dict)
+        else 1
+        for row in items
+    ]
 
 
 def _progress_keys(capability: CapabilitySpec) -> tuple[str, ...]:
