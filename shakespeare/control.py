@@ -163,9 +163,23 @@ class Controller:
                 )
                 self.context.update(outcome.context)
 
-                result = evaluator.evaluate(goal, self.context)
+                result = evaluator.evaluate(
+                    goal, self.context, exhausted=outcome.exhausted
+                )
                 if span is not None:
                     span.add_count("rounds", len(outcome.rounds))
+                    span.add_count(
+                        "rounds_failed",
+                        sum(1 for item in outcome.rounds if not item.succeeded),
+                    )
+                    span.record(
+                        outcome=str(result.outcome),
+                        sufficient=outcome.sufficient,
+                        # Check and artifact-kind names are declared in packages, so
+                        # neither can carry content.
+                        failed_checks=result.failed_checks,
+                        missing_kinds=result.missing_kinds,
+                    )
                     if not result.satisfied:
                         span.fail(ErrorCode.OBLIGATION_FAILED)
             attempts.append(

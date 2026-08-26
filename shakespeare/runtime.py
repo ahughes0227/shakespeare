@@ -91,6 +91,9 @@ class Runtime:
     config_root: str | None = None
     admission: Any = None
     grants: dict[str, set[str]] = field(default_factory=dict)
+    #: The tracer bound to the run in flight, so a model call joins the tree at the point
+    #: it was made rather than dangling at the root.
+    _tracer: Any = None
     #: Per-capability budget. Resolved against the item count when a capability is asked
     #: to do something, since file counts are unbounded.
     budget: BudgetEnvelope = field(
@@ -105,6 +108,12 @@ class Runtime:
 
     def run(self, request: RequestContract, *, commit: bool = True) -> RunResult:
         run_id = new_run_id()
+        # Bind the tracer before the first model call, or routing is spent untraced.
+        self._tracer = self.tracer.rebind(run_id) if self.tracer else None
+        if hasattr(self.planner, "usage_sink"):
+            self.planner.usage_sink = lambda role, usage, version: self._record_usage(
+                run_id, role, usage, prompt_version=version
+            )
         route, usage = self.planner.select_workflow(request, self.workflows.routing_catalog())
         if not route.supported or route.workflow_id not in self.workflows:
             return RunResult(
@@ -128,11 +137,16 @@ class Runtime:
             request_digest=request.digest(),
             input_root_digest=content_digest(request.input_root),
         )
-        self._record_usage(run_id, "planner.route", usage)
+        self._record_usage(
+            run_id,
+            "planner.route",
+            usage,
+            prompt_version=getattr(self.planner, "route_version", None),
+        )
 
         artifacts = ArtifactStore(root=workspace / "artifacts", run_id=run_id)
         # One tracer per run, so every span carries the run it belongs to.
-        tracer = self.tracer.rebind(run_id) if self.tracer else None
+        tracer = self._tracer
         controller = Controller(
             capabilities=self.capabilities,
             runner=CapabilityRunner(
@@ -181,6 +195,8 @@ class Runtime:
                 )
                 if span is not None:
                     span.add_count("goals_satisfied", len(satisfied))
+                    span.add_count("goals_total", len(workflow.spec.goals))
+                    span.record(outcome="planned" if failure is None else "aborted")
         except Denial as denial:
             mutation.discard(staging)
             self.audit.record_run_outcome(
@@ -433,6 +449,19 @@ class Runtime:
     ) -> None:
         if usage is None:
             return
+        if self._tracer is not None:
+            with self._tracer.span(
+                f"model.{role}",
+                domain=role,
+                prompt_version=prompt_version,
+                requested_model=usage.requested_model,
+                resolved_model=usage.resolved_model,
+                provider=usage.provider,
+                cost_usd=usage.cost_usd,
+                prompt_tokens=usage.prompt_tokens,
+                completion_tokens=usage.completion_tokens,
+            ):
+                pass
         self.audit.record_model_invocation(
             run_id=run_id,
             role=role,

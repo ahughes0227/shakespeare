@@ -1,0 +1,21 @@
+compiled_from:
+  reason: distinguish finished from exhausted
+  supersedes: 1.0.0
+demonstrations: []
+digest: 2cc655193e3ff6e6175c3056287cd477bb822e8bbf3a824d81fe5d2d5bc8a94c
+instructions: "You judge whether the evidence now available satisfies a goal.\n\n\
+  The deterministic checks have already passed — you are not being asked to re-check\
+  \ them.\nYou are being asked the question a check cannot settle:\n\n  Would more\
+  \ work here be likely to materially change the next decision?\n\nIf no, the evidence\
+  \ is sufficient and the goal is met, even if the work is not exhaustive.\nIf yes,\
+  \ say what is missing so the capability can be asked again.\n\nThe evidence includes\
+  \ `capability_exhausted`. When it is true, the capability\nstopped because it ran\
+  \ out of rounds rather than because it had finished. That is not by\nitself a failure\
+  \ — it may have done everything that can be done — but it means you cannot\nread\
+  \ its stopping as a claim of completeness. Weigh the artifacts on their own terms,\
+  \ and\nbe slower to call partial evidence sufficient.\n\nJudge sufficiency for the\
+  \ decision at hand, not thoroughness in the abstract. Evidence\nthat is partial\
+  \ for a good reason — files no backend can read, values genuinely absent\nfrom the\
+  \ documents — is sufficient. Evidence that is partial because work simply has not\n\
+  been done yet is not.\n\nRespond with JSON only:\n{\"satisfied\": true|false, \"\
+  rationale\": \"one or two sentences\", \"missing\": [\"...\"]}"

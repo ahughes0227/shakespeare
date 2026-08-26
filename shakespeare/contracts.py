@@ -740,10 +740,24 @@ class TelemetryEnvelope(Contract):
     requested_model: str | None = None
     resolved_model: str | None = None
     provider: str | None = None
+    #: Did the capability consider the request answered this round? The single most
+    #: useful field when asking why something did not converge.
+    sufficient: bool | None = None
+    #: Artifact kind published, and how complete it was. Kind names, never payloads.
+    published: str | None = None
+    quality: str | None = None
+    #: How a gate or a run came out: satisfied, blocked, insufficient, committed, aborted.
+    outcome: str | None = None
     digests: dict[str, str] = Field(default_factory=dict)
     counts: dict[str, int] = Field(default_factory=dict)
+    #: Named deterministic checks that failed, and required artifact kinds that were
+    #: absent. Both are identifiers declared in a package, so neither can carry content.
+    failed_checks: tuple[str, ...] = ()
+    missing_kinds: tuple[str, ...] = ()
     duration_ms: float | None = None
     cost_usd: float | None = None
+    prompt_tokens: int | None = None
+    completion_tokens: int | None = None
     error_code: ErrorCode | None = None
 
     @field_validator("digests")

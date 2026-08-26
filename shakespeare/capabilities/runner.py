@@ -181,7 +181,7 @@ class CapabilityRunner:
                 if self.tracer
                 else _no_span()
             )
-            round_span.__enter__()
+            round_state = round_span.__enter__()
             try:
                 organization, usage = agent.organize(
                     capability=capability,
@@ -212,6 +212,11 @@ class CapabilityRunner:
                         denial=str(failure),
                     )
                 )
+                if round_state is not None:
+                    # The class of refusal, never its text: a denial message can quote
+                    # the value that caused it.
+                    round_state.fail(failure.code)
+                    round_state.record(sufficient=False)
                 round_span.__exit__(None, None, None)
                 continue
 
@@ -253,6 +258,22 @@ class CapabilityRunner:
 
             rounds.append(Round(number=number, organization=organization, results=results,
                                 denial=denial))
+            if round_state is not None:
+                round_state.record(
+                    sufficient=organization.sufficient,
+                    published=organization.publishes,
+                    quality=str(organization.quality),
+                )
+                # The capability's own progress numbers. This is where "20 of 60" lives,
+                # and it is the difference between seeing that a run stalled and seeing
+                # why.
+                round_state.add_counts(organization.summary)
+                round_state.add_count("components", len(results))
+                round_state.add_count(
+                    "failed", sum(1 for item in results if not item.succeeded)
+                )
+                if denial is not None:
+                    round_state.fail(ErrorCode.COMPOSITION_INVALID)
             round_span.__exit__(None, None, None)
 
             if organization.ask is not None and self.ask_sink is not None:

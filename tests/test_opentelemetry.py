@@ -133,3 +133,211 @@ class TestSpanTree:
         }
         assert run_ids == {result.run_id}, "a session tracer must rebind per run"
         audit.close()
+
+
+class TestDiagnosis:
+    """Would the trace explain a stall?
+
+    A sixty-invoice run stalled and the telemetry could not say why: every round span
+    looked identical and successful. These pin the fields that make the difference.
+    """
+
+    def _stalled(self, tmp_path: Path, collected):
+        from shakespeare.artifacts import Quality
+        from shakespeare.capabilities.runner import Organization
+        from shakespeare.contracts import Invocation
+        from shakespeare.telemetry import Tracer
+
+        from harness import rename_agent, seed_invoices, values_for
+
+        memory, exporter = collected
+        source = seed_invoices(tmp_path / "in")
+        agent = rename_agent(values_for(source))
+        # A capability that never finishes and never advances.
+        agent.plans["acquire"] = [
+            Organization(
+                invocations=(
+                    Invocation(
+                        invocation_id="ext",
+                        operator="doc.extract",
+                        selections={"extract": "auto_chain"},
+                        inputs=("root", "items"),
+                    ),
+                ),
+                intent="read a slice",
+                sufficient=False,
+                publishes="ExtractedContent",
+                quality=Quality.PARTIAL,
+                summary={"items_done": 20, "items_total": 60},
+            )
+        ]
+        runtime, request, audit, _ = build(tmp_path, agents={"*": agent})
+        runtime.tracer = Tracer("session", [exporter])
+        runtime.run(request, commit=False)
+        audit.close()
+        return memory.get_finished_spans()
+
+    def _named(self, spans, prefix: str):
+        return [s for s in spans if s.name.startswith(prefix)]
+
+    def test_the_trace_shows_the_capability_never_finished(
+        self, collected, tmp_path: Path
+    ) -> None:
+        rounds = self._named(self._stalled(tmp_path, collected), "round.acquire")
+        assert rounds, "the stalling capability must appear"
+        assert all(r.attributes["shakespeare.sufficient"] is False for r in rounds)
+
+    def test_the_trace_shows_it_made_no_progress(self, collected, tmp_path: Path) -> None:
+        """The field that turns 'it stalled' into 'it stalled at twenty of sixty'."""
+        rounds = self._named(self._stalled(tmp_path, collected), "round.acquire")
+        done = {r.attributes["shakespeare.counts.items_done"] for r in rounds}
+        total = {r.attributes["shakespeare.counts.items_total"] for r in rounds}
+        assert done == {20} and total == {60}, "identical across rounds: no progress"
+
+    def test_the_trace_shows_how_many_rounds_were_burned(
+        self, collected, tmp_path: Path
+    ) -> None:
+        goals = self._named(self._stalled(tmp_path, collected), "goal.readable")
+        assert goals[0].attributes["shakespeare.counts.rounds"] > 1
+
+    def test_partial_evidence_is_visible_as_partial(self, collected, tmp_path: Path) -> None:
+        rounds = self._named(self._stalled(tmp_path, collected), "round.acquire")
+        assert rounds[0].attributes["shakespeare.quality"] == "partial"
+        assert rounds[0].attributes["shakespeare.published"] == "ExtractedContent"
+
+    def test_a_gate_records_its_outcome_and_what_was_missing(
+        self, collected, tmp_path: Path
+    ) -> None:
+        from shakespeare.agent import FakeCapabilityAgent
+        from shakespeare.capabilities.runner import Organization
+        from shakespeare.telemetry import Tracer
+
+        memory, exporter = collected
+        agent = FakeCapabilityAgent()
+        agent.queue("survey", Organization(intent="produce nothing", sufficient=True))
+        runtime, request, audit, _ = build(tmp_path, agents={"*": agent})
+        runtime.tracer = Tracer("session", [exporter])
+        runtime.run(request, commit=False)
+
+        goals = self._named(memory.get_finished_spans(), "goal.inventoried")
+        assert goals[0].attributes["shakespeare.outcome"] == "blocked"
+        assert "FileInventory" in goals[0].attributes["shakespeare.missing_kinds"]
+        audit.close()
+
+    def test_model_calls_are_attributable(self, collected, tmp_path: Path) -> None:
+        """Cost and prompt version per call, so a regression can be traced to a promotion."""
+        from shakespeare.contracts import RouteDecision
+        from shakespeare.gateway import FakeGateway, ModelProfile
+        from shakespeare.planner import ModelGoalPlanner
+        from shakespeare.prompts import PromptStore
+        from shakespeare.telemetry import Tracer
+
+        memory, exporter = collected
+        from shakespeare.planner import GoalChoice, Judgment
+
+        judgment = {"satisfied": True, "rationale": "sufficient"}
+        gateway = (
+            FakeGateway()
+            .queue(RouteDecision, {"workflow_id": "rename_files", "supported": True})
+            .queue(GoalChoice, {"goal_id": "readable"})
+            .queue(Judgment, judgment, judgment, judgment)
+        )
+        runtime, request, audit, _ = build(tmp_path)
+        runtime.planner = ModelGoalPlanner(
+            gateway=gateway,
+            profile=ModelProfile(profile_id="p", model="openrouter/openai/gpt-5-mini"),
+            prompts=PromptStore(),
+        )
+        runtime.tracer = Tracer("session", [exporter])
+        runtime.run(request, commit=False)
+
+        model_spans = self._named(memory.get_finished_spans(), "model.")
+        assert model_spans, "a model call must be its own span"
+        attrs = model_spans[0].attributes
+        assert attrs["shakespeare.requested_model"] == "openrouter/openai/gpt-5-mini"
+        assert "shakespeare.prompt_tokens" in attrs
+        audit.close()
+
+    def test_no_content_reaches_any_of_it(self, collected, tmp_path: Path) -> None:
+        spans = self._stalled(tmp_path, collected)
+        blob = str([dict(s.attributes) for s in spans])
+        for secret in ("ACME Corporation", "INV-99812", "Globex", "invoice body"):
+            assert secret not in blob
+
+
+class TestSurvivingAKill:
+    """The audit log records a goal attempt only once the goal completes.
+
+    A run killed mid-goal therefore loses everything in flight — which is exactly what
+    happened to the sixty-invoice run, leaving zero journalled compositions against
+    seventeen model calls. Spans close as each round ends, so they are already exported
+    by then.
+    """
+
+    def test_a_round_span_closes_before_its_goal_does(
+        self, collected, tmp_path: Path
+    ) -> None:
+        from shakespeare.artifacts import Quality
+        from shakespeare.capabilities.runner import Organization
+        from shakespeare.contracts import Invocation
+        from shakespeare.telemetry import Tracer
+
+        from harness import rename_agent, seed_invoices, values_for
+
+        memory, exporter = collected
+        source = seed_invoices(tmp_path / "in")
+        agent = rename_agent(values_for(source))
+        agent.plans["acquire"] = [
+            Organization(
+                invocations=(
+                    Invocation(
+                        invocation_id="ext",
+                        operator="doc.extract",
+                        selections={"extract": "auto_chain"},
+                        inputs=("root", "items"),
+                    ),
+                ),
+                intent="a slice",
+                sufficient=False,
+                publishes="ExtractedContent",
+                quality=Quality.PARTIAL,
+                summary={"items_done": 20, "items_total": 60},
+            )
+        ]
+        runtime, request, audit, _ = build(tmp_path, agents={"*": agent})
+        runtime.tracer = Tracer("session", [exporter])
+        runtime.run(request, commit=False)
+
+        spans = memory.get_finished_spans()
+        goal = next(s for s in spans if s.name == "goal.readable")
+        rounds = [s for s in spans if s.name == "round.acquire"]
+        assert len(rounds) > 1
+        # Every round ended before its goal did, so a kill part-way still leaves the
+        # completed rounds exported and readable.
+        assert all(r.end_time <= goal.end_time for r in rounds)
+        assert min(r.end_time for r in rounds) < goal.end_time
+        audit.close()
+
+    def test_the_journal_has_nothing_for_an_unfinished_goal(
+        self, collected, tmp_path: Path
+    ) -> None:
+        """The gap spans fill: a goal still in flight is absent from the audit log."""
+        from shakespeare.agent import FakeCapabilityAgent
+        from shakespeare.audit import schema
+        from shakespeare.capabilities.runner import Organization
+        from sqlalchemy import select
+
+        agent = FakeCapabilityAgent()
+        agent.queue("survey", Organization(intent="never publishes", sufficient=True))
+        runtime, request, audit, _ = build(tmp_path, agents={"*": agent})
+
+        # Interrupt after the capability has run but before the goal resolves.
+        original = runtime._journal
+        runtime._journal = lambda *a, **k: None  # type: ignore[method-assign]
+        runtime.run(request, commit=False)
+        runtime._journal = original  # type: ignore[method-assign]
+
+        with audit.engine.begin() as connection:
+            attempts = connection.execute(select(schema.stage_attempts)).mappings().all()
+        assert not attempts, "an unfinished goal leaves no journal row"
+        audit.close()

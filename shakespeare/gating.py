@@ -35,7 +35,15 @@ class GateEvaluator:
     artifacts: ArtifactStore
     judge: GateJudge | None = None
 
-    def evaluate(self, goal: Goal, context: dict[str, Any]) -> GateResult:
+    def evaluate(
+        self, goal: Goal, context: dict[str, Any], *, exhausted: bool = False
+    ) -> GateResult:
+        """`exhausted` says the capability stopped because it ran out of rounds.
+
+        A gate judges evidence, not process — but "it stopped because it was finished"
+        and "it stopped because it ran out" are different situations, and a judge that
+        cannot tell them apart will call a partial answer sufficient.
+        """
         gate = goal.gate
         available: tuple[Artifact, ...] = self.artifacts.all()
 
@@ -82,7 +90,10 @@ class GateEvaluator:
             goal=goal,
             rubric=gate.rubric,
             artifacts=self.artifacts.describe(),
-            evidence=_evidence_for_judgment(gate, context),
+            evidence={
+                **_evidence_for_judgment(gate, context),
+                "capability_exhausted": exhausted,
+            },
         )
         return GateResult(
             gate_id=gate.id,

@@ -268,7 +268,15 @@ class ModelGoalPlanner:
     route_version: str = "1.0.0"
     goal_version: str = "1.0.0"
     capability_version: str = "1.0.0"
-    judge_version: str = "1.0.0"
+    judge_version: str = "1.1.0"
+    #: Called with (role, usage, prompt_version). Goal, capability and gate calls return
+    #: plain values through the protocol, so without this their cost is spent and never
+    #: attributed to anything.
+    usage_sink: Any = None
+
+    def _spend(self, role: str, usage: ModelUsage | None, version: str) -> None:
+        if self.usage_sink is not None:
+            self.usage_sink(role, usage, version)
 
     def select_workflow(
         self, request: RequestContract, catalog: dict[str, dict[str, str]]
@@ -287,7 +295,8 @@ class ModelGoalPlanner:
             ],
             artifacts=artifacts,
         )
-        choice, _ = self.gateway.complete(self.profile, messages, GoalChoice)
+        choice, usage = self.gateway.complete(self.profile, messages, GoalChoice)
+        self._spend("planner.select_goal", usage, self.goal_version)
         return choice.goal_id
 
     def select_capability(self, goal: Any, candidates: list[str]) -> str:
@@ -295,7 +304,8 @@ class ModelGoalPlanner:
         messages = render_prompt(
             artifact, goal=goal.statement, candidates=candidates
         )
-        choice, _ = self.gateway.complete(self.profile, messages, CapabilityChoice)
+        choice, usage = self.gateway.complete(self.profile, messages, CapabilityChoice)
+        self._spend("planner.select_capability", usage, self.capability_version)
         return choice.capability_id
 
     def judge(
@@ -314,7 +324,8 @@ class ModelGoalPlanner:
             artifacts=artifacts,
             evidence=evidence,
         )
-        judgment, _ = self.gateway.complete(self.profile, messages, Judgment)
+        judgment, usage = self.gateway.complete(self.profile, messages, Judgment)
+        self._spend("planner.judge_gate", usage, self.judge_version)
         return judgment.satisfied, judgment.rationale
 
 

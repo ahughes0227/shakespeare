@@ -190,6 +190,8 @@ class Tracer:
         digests: dict[str, str] | None = None,
         counts: dict[str, int] | None = None,
         cost_usd: float | None = None,
+        prompt_tokens: int | None = None,
+        completion_tokens: int | None = None,
     ) -> Iterator[SpanState]:
         started = time.monotonic()
         state = SpanState()
@@ -213,10 +215,18 @@ class Tracer:
                 requested_model=requested_model,
                 resolved_model=resolved_model,
                 provider=provider,
+                sufficient=state.sufficient,
+                published=state.published,
+                quality=state.quality,
+                outcome=state.outcome,
                 digests={**(digests or {}), **state.digests},
                 counts={**(counts or {}), **state.counts},
+                failed_checks=state.failed_checks,
+                missing_kinds=state.missing_kinds,
                 duration_ms=(time.monotonic() - started) * 1000,
                 cost_usd=cost_usd if cost_usd is not None else state.cost_usd,
+                prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
                 error_code=state.error_code,
             )
             if span is not None:
@@ -239,6 +249,42 @@ class SpanState:
         self.counts: dict[str, int] = {}
         self.cost_usd: float | None = None
         self.error_code: ErrorCode | None = None
+        self.sufficient: bool | None = None
+        self.published: str | None = None
+        self.quality: str | None = None
+        self.outcome: str | None = None
+        self.failed_checks: tuple[str, ...] = ()
+        self.missing_kinds: tuple[str, ...] = ()
+
+    def record(
+        self,
+        *,
+        sufficient: bool | None = None,
+        published: str | None = None,
+        quality: str | None = None,
+        outcome: str | None = None,
+        failed_checks: tuple[str, ...] = (),
+        missing_kinds: tuple[str, ...] = (),
+    ) -> None:
+        if sufficient is not None:
+            self.sufficient = sufficient
+        self.published = published or self.published
+        self.quality = quality or self.quality
+        self.outcome = outcome or self.outcome
+        self.failed_checks = failed_checks or self.failed_checks
+        self.missing_kinds = missing_kinds or self.missing_kinds
+
+    def add_counts(self, values: dict[str, Any]) -> None:
+        """Numeric values only.
+
+        A capability's summary is model-supplied and typed as Any, so a string could
+        arrive in it. Taking only numbers keeps the no-content guarantee true by
+        construction rather than by trusting the prompt.
+        """
+        for key, value in values.items():
+            if isinstance(value, bool) or not isinstance(value, (int, float)):
+                continue
+            self.counts[key] = int(value)
 
     def add_digest(self, key: str, value: Any) -> None:
         self.digests[key] = digest_of(value)
