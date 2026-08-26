@@ -216,7 +216,9 @@ class CapabilityRunner:
                         "remaining": remaining,
                         "capacity": self.capacity,
                         "cost_per_item": capability.cost_per_item,
-                        "observations": observations,
+                        # Copied, because the live list keeps growing and the journal
+                        # would otherwise record every decision with the final state.
+                        "observations": list(observations),
                     },
                 ),
             ),
@@ -300,7 +302,7 @@ class CapabilityRunner:
             spent = self._pursue_batch(
                 capability=capability, request=request, working=working, rounds=rounds,
                 produced=produced, budget=budget, workspace=workspace, goal_id=goal_id,
-                agent=agent,
+                agent=agent, focus=_identify(batch),
             )
             _accumulate(working, accumulated, exclude=capability.divides)
             observations.append(
@@ -338,6 +340,7 @@ class CapabilityRunner:
         workspace: Path,
         goal_id: str,
         agent: CapabilityAgent,
+        focus: frozenset[str] | None = None,
     ) -> BatchCost:
         """Rounds within one batch, which are for self-correction rather than progress."""
         from ..compose import CompositionError, compose
@@ -364,7 +367,7 @@ class CapabilityRunner:
                     capability=capability,
                     request=request,
                     artifacts=self.artifacts.describe(),
-                    context=_summarise(working),
+                    context=_summarise(working, focus=focus, divides=capability.divides),
                     # The capability sees its own prior rounds. This is what lets it carry
                     # on rather than restart, and what makes "enough evidence" its
                     # judgment.
@@ -583,12 +586,47 @@ def _record_progress(working: dict[str, Any]) -> None:
     working["_completed"] = seen
 
 
-def _summarise(working: dict[str, Any]) -> dict[str, Any]:
-    """Shape, not payload. A capability is told what it has, not handed all of it."""
+def _identify(batch: list[Any]) -> frozenset[str]:
+    return frozenset(
+        str(row["item_id"]) for row in batch if isinstance(row, dict) and "item_id" in row
+    )
+
+
+def _summarise(
+    working: dict[str, Any],
+    *,
+    focus: frozenset[str] | None = None,
+    divides: str = "",
+) -> dict[str, Any]:
+    """Shape, not payload — except for the batch, which is handed over whole.
+
+    Describing everything is right for a capability whose components do the reading: it
+    binds `items` by name and the operator gets the real list. It is wrong for one that
+    must do the reading itself. A live run put it plainly: "the available context
+    provides only aggregate item and extraction counts, not the individual item IDs,
+    paths, extensions, or extracted invoice text" — resolve was asked to read text it was
+    never shown, three attempts running.
+
+    So when a capability has been handed a batch, that batch and the per-item evidence
+    belonging to it arrive in full. The batch was sized to fit one response; this is what
+    it was sized for.
+    """
     described: dict[str, Any] = {}
     for key, value in working.items():
         if key.startswith("_"):
             continue
+        if focus is not None and isinstance(value, list):
+            if key == divides:
+                described[key] = value
+                continue
+            belonging = [
+                row
+                for row in value
+                if isinstance(row, dict) and str(row.get("item_id")) in focus
+            ]
+            if belonging:
+                described[key] = belonging
+                continue
         if isinstance(value, list):
             described[key] = {"kind": "list", "count": len(value)}
         elif isinstance(value, dict):

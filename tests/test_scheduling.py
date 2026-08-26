@@ -42,6 +42,12 @@ def items(count: int) -> list[dict[str, str]]:
     return [{"item_id": f"i{n}"} for n in range(count)]
 
 
+def handed_over(context: dict) -> int:
+    """How many items a capability was actually given this round."""
+    value = context.get("items")
+    return len(value) if isinstance(value, list) else int((value or {}).get("count", 0))
+
+
 def spent(items_in_batch: int, tokens_each: int) -> dict[str, object]:
     return {"items": items_in_batch, "completion_tokens": items_in_batch * tokens_each}
 
@@ -191,7 +197,7 @@ class TestTheRuntimeSchedules:
             self.batch_sizes: list[int] = []
 
         def organize(self, *, capability, request, artifacts, context, prior, catalog_summary):
-            self.batch_sizes.append(context.get("items", {}).get("count", 0))
+            self.batch_sizes.append(handed_over(context))
             return (
                 Organization(
                     invocations=(
@@ -293,7 +299,7 @@ class TestTheRuntimeSchedules:
                 self.sizes: list[int] = []
 
             def organize(self, *, capability, request, artifacts, context, prior, catalog_summary):
-                size = context.get("items", {}).get("count", 0)
+                size = handed_over(context)
                 self.sizes.append(size)
                 if size > 4:
                     raise GatewayError(
@@ -498,3 +504,68 @@ class TestBatchingIsInvisibleDownstream:
             for invocation in composition.invocations
         }
         assert operators == {"schedule.plan"}
+
+
+class TestTheBatchIsShownNotDescribed:
+    """A capability that must read the content has to be given the content.
+
+    Three live attempts died on this: "the available context provides only aggregate item
+    and extraction counts, not the individual item IDs, paths, extensions, or extracted
+    invoice text". The batch is sized to fit one response — this is what it was sized for.
+    """
+
+    def _seen(self, tmp_path: Path, capability: CapabilitySpec, context: dict):
+        seen: list[dict] = []
+
+        class Watcher:
+            def organize(self, *, capability, request, artifacts, context, prior, catalog_summary):
+                seen.append(context)
+                return (
+                    Organization(
+                        invocations=(
+                            Invocation(
+                                invocation_id="n",
+                                operator="text.normalize",
+                                parameters={"values": {"v": "x"}},
+                            ),
+                        ),
+                        intent="read it",
+                        sufficient=True,
+                        publishes="ExtractedContent",
+                    ),
+                    None,
+                )
+
+        operators = build_registry()
+        CapabilityRunner(
+            executor=Executor(operators, Verifier(operators)),
+            agents={"*": Watcher()},
+            artifacts=ArtifactStore(root=tmp_path / "artifacts", run_id="r"),
+            capacity=16384,
+        ).run(
+            capability=capability,
+            request="read them",
+            context=context,
+            budget=Budget(envelope=BudgetEnvelope(operator_calls="400"), items=60),
+            workspace=tmp_path / "work",
+        )
+        return seen
+
+    def test_the_batch_arrives_in_full(self, tmp_path: Path) -> None:
+        seen = self._seen(tmp_path, DIVISIBLE, {"items": items(60)})
+        assert all(isinstance(context["items"], list) for context in seen)
+        assert sum(len(context["items"]) for context in seen) == 60
+
+    def test_the_evidence_for_those_items_comes_with_them(self, tmp_path: Path) -> None:
+        """Rows for other batches would be noise, and the whole set would not fit."""
+        text = [{"item_id": row["item_id"], "text": "body"} for row in items(60)]
+        seen = self._seen(tmp_path, DIVISIBLE, {"items": items(60), "extractions": text})
+        first = seen[0]
+        assert {row["item_id"] for row in first["extractions"]} == {
+            row["item_id"] for row in first["items"]
+        }
+
+    def test_an_undivided_capability_is_still_only_described(self, tmp_path: Path) -> None:
+        """Nothing sized the set for it, so handing it over whole could not be safe."""
+        seen = self._seen(tmp_path, WHOLE_SET, {"items": items(500)})
+        assert seen[0]["items"] == {"kind": "list", "count": 500}
