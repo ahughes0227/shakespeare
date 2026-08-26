@@ -247,6 +247,31 @@ class Executor:
                     arguments[target] = nested[key]
                     continue
             if source not in arguments:
+                # The failure a live run kept hitting was binding an operator's own
+                # output back into it, mirroring the catalog's `produces` list into
+                # `bindings`. Saying only "no resolved source" left the next round to
+                # guess; naming what is actually bindable ends it in one.
+                from .operators.contracts import OUTPUT_KEYS
+
+                if source in OUTPUT_KEYS.get(invocation.operator, ()):
+                    detail = (
+                        f"binding {target}={source} names an output of "
+                        f"{invocation.operator}, not an input. Outputs need no declaring; "
+                        f"a later invocation reads them by name"
+                    )
+                else:
+                    # Runtime plumbing is in the argument mapping but is not the
+                    # composition's to bind, so offering it would only invite the next
+                    # mistake.
+                    bindable = sorted(
+                        key
+                        for key in arguments
+                        if not key.startswith("_") and key not in {"config", "operation"}
+                    )
+                    detail = (
+                        f"binding {target}={source} has no resolved source; "
+                        f"bindable here: {', '.join(bindable) or 'nothing yet'}"
+                    )
                 return InvocationResult(
                     invocation_id=invocation.invocation_id,
                     operator=invocation.operator,
@@ -255,7 +280,7 @@ class Executor:
                     started_at=started_at,
                     ended_at=_isoformat(time.time()),
                     error_code=ErrorCode.COMPOSITION_INVALID,
-                    error_detail=f"binding {target}={source} has no resolved source",
+                    error_detail=detail,
                 )
             arguments[target] = arguments[source]
 

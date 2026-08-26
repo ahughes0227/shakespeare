@@ -274,3 +274,45 @@ class TestUnusableResponses:
             workspace=tmp_path / "work",
         )
         assert "does not satisfy Organization" in str(agent.seen_prior[1])
+
+
+class TestEvidenceOutranksSelfReport:
+    """A round says what it did; its results say what happened. The results win.
+
+    A live run put an empty FileInventory in the store this way: every component in the
+    round failed, the organization still declared itself complete, the deterministic gate
+    saw the kind it required, and the next capability was asked to extract text from an
+    inventory of nothing.
+    """
+
+    def test_a_round_whose_components_failed_publishes_nothing(self, harness) -> None:
+        outcome = run(
+            harness,
+            scan_round(
+                invocations=(
+                    Invocation(
+                        invocation_id="scan", operator="fs.scan", parameters={"root": "/nowhere"}
+                    ),
+                )
+            ),
+            rounds=1,
+        )
+        assert not any(item.succeeded for round_ in outcome.rounds for item in round_.results)
+        assert outcome.artifacts == ()
+
+    def test_a_round_whose_components_failed_cannot_declare_itself_finished(
+        self, harness
+    ) -> None:
+        outcome = run(
+            harness,
+            scan_round(
+                invocations=(
+                    Invocation(
+                        invocation_id="scan", operator="fs.scan", parameters={"root": "/nowhere"}
+                    ),
+                )
+            ),
+            rounds=1,
+        )
+        assert outcome.exhausted
+        assert not outcome.sufficient

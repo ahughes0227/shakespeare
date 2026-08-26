@@ -159,7 +159,12 @@ class CapabilityOutcome:
 
     @property
     def sufficient(self) -> bool:
-        return bool(self.rounds) and self.rounds[-1].organization.sufficient
+        """Claimed *and* borne out. A round that failed has established nothing."""
+        return (
+            bool(self.rounds)
+            and self.rounds[-1].succeeded
+            and self.rounds[-1].organization.sufficient
+        )
 
 
 @dataclass
@@ -432,8 +437,9 @@ class CapabilityRunner:
                     working.update(item.output)
             _record_progress(working)
 
-            rounds.append(Round(number=number, organization=organization, results=results,
-                                denial=denial))
+            completed = Round(number=number, organization=organization, results=results,
+                              denial=denial)
+            rounds.append(completed)
             if round_state is not None:
                 round_state.record(
                     sufficient=organization.sufficient,
@@ -457,7 +463,11 @@ class CapabilityRunner:
                 if admitted:
                     self.grants.setdefault(capability.id, set()).add(admitted)
 
-            if organization.publishes and denial is None:
+            # A round whose components failed has established nothing, whatever it says
+            # about itself. Publishing anyway put an empty FileInventory in the store,
+            # the gate saw the kind it required and accepted, and a sixty-file run then
+            # spent three attempts asking a capability to extract from nothing.
+            if organization.publishes and completed.succeeded:
                 produced.append(
                     self.artifacts.put(
                         kind=organization.publishes,
@@ -468,7 +478,7 @@ class CapabilityRunner:
                     )
                 )
 
-            if organization.sufficient and denial is None:
+            if organization.sufficient and completed.succeeded:
                 cost.finished = True
                 return cost
 
