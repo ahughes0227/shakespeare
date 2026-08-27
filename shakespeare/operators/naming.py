@@ -98,6 +98,9 @@ class RenderResult(Contract):
     #: be checked against what turned out to be true.
     values: dict[str, Any] = Field(default_factory=dict)
     confidences: dict[str, float] = Field(default_factory=dict)
+    #: Recorded with the rest of what produced this name, so the name can be recomputed
+    #: from the frozen convention and checked against what was actually claimed.
+    extension: str = ""
 
     @property
     def resolved(self) -> bool:

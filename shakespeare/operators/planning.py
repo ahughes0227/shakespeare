@@ -269,6 +269,59 @@ def check_rendered_mechanically(obligation_id: str, payload: dict[str, Any]) -> 
     )
 
 
+def check_convention_followed(obligation_id: str, payload: dict[str, Any]) -> ObligationResult:
+    """Every name must be the one the frozen convention produces from the stored values.
+
+    `spec.freeze` and the convention goal make a convention evidence; nothing made it
+    binding at the point of use. name.render also accepts a `template` and `fields`
+    directly, for workflows that have no frozen spec — so a capability could author its
+    own convention at render time and the run would commit names in a format nobody asked
+    for, with every gate green. A live run did exactly that: sixty files named
+    `2024-04-01, ...` under a convention that says `%Y%m`.
+
+    So the names are recomputed here from the frozen spec and the values that produced
+    them, and must match. This compares the pre-collision render on both sides, because
+    collision resolution legitimately rewrites a name and re-rendering would not.
+    """
+    from . import naming
+
+    spec_payload = payload.get("spec")
+    rows = payload.get("results") or []
+    if not spec_payload or not rows:
+        return _result(obligation_id, False, reason="no frozen spec or no render results")
+
+    spec = naming.NamingSpec.model_validate(spec_payload)
+    divergent: list[dict[str, str]] = []
+    checked = 0
+    for index, row in enumerate(rows):
+        claimed = row.get("rendered")
+        if not claimed:
+            continue
+        checked += 1
+        expected = naming.render(
+            item_id=str(row.get("item_id", "")),
+            template=spec.template,
+            fields=spec.fields,
+            values=row.get("values") or {},
+            policy=spec.policy,
+            extension=row.get("extension", ""),
+            sequence=index + 1,
+            confidences=row.get("confidences") or {},
+            floor=spec.confidence_floor,
+        )
+        if expected.rendered != claimed:
+            divergent.append(
+                {"item_id": str(row.get("item_id", "")), "named": claimed,
+                 "convention": str(expected.rendered)}
+            )
+    return _result(
+        obligation_id,
+        not divergent and checked > 0,
+        checked=checked,
+        divergent=divergent[:10],
+    )
+
+
 def check_structure_mirrors(obligation_id: str, payload: dict[str, Any]) -> ObligationResult:
     expected = sorted(payload.get("expected_dirs", []))
     actual = sorted(payload.get("actual_dirs", []))
@@ -289,6 +342,7 @@ CHECKS = {
     "resolution_accounted": check_resolution_accounted,
     "spec_frozen": check_spec_frozen,
     "rendered_mechanically": check_rendered_mechanically,
+    "convention_followed": check_convention_followed,
     "structure_mirrors": check_structure_mirrors,
 }
 
@@ -303,6 +357,7 @@ CHECK_REQUIREMENTS: dict[str, tuple[str, ...]] = {
     "resolution_accounted": ("items", "candidates", "unrendered"),
     "spec_frozen": ("spec", "digest"),
     "rendered_mechanically": ("entries", "candidates"),
+    "convention_followed": ("spec", "results"),
     "structure_mirrors": ("expected_dirs", "actual_dirs"),
 }
 

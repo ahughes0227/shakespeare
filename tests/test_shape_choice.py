@@ -219,3 +219,84 @@ def _frozen() -> dict:
     from harness import SPEC
 
     return pure_transform({"operation": "freeze_spec", "spec": SPEC}, Path("."))["spec"]
+
+
+class TestTheFrozenConventionIsBinding:
+    """Freezing a convention made it evidence. It did not make it binding.
+
+    A live run committed sixty files named `2024-04-01, Umbrella Health, ...` under a
+    convention that says `%Y%m`, with every gate green: the capability passed name.render
+    its own `template` and `fields` instead of the frozen spec, and the renderer obliged.
+    """
+
+    @staticmethod
+    def _check(payload: dict) -> object:
+        from shakespeare.operators.planning import check_convention_followed
+
+        return check_convention_followed("convention_followed", payload)
+
+    def _row(self, rendered: str) -> dict:
+        return {
+            "item_id": "a",
+            "rendered": rendered,
+            "extension": ".pdf",
+            "values": {"invoice_date": "2024-04-01", "vendor": "Umbrella Health"},
+            "confidences": {"invoice_date": 0.99, "vendor": 0.99},
+        }
+
+    def _spec(self) -> dict:
+        from shakespeare.runners import pure_transform
+
+        return pure_transform(
+            {
+                "operation": "freeze_spec",
+                "spec": {
+                    "template": "{invoice_date}, {vendor}",
+                    "fields": [
+                        {"name": "invoice_date", "kind": "date", "format": "%Y%m"},
+                        {"name": "vendor"},
+                    ],
+                    "policy": {"separator": ", "},
+                },
+            },
+            Path("."),
+        )["spec"]
+
+    def test_a_name_the_convention_produces_passes(self) -> None:
+        result = self._check(
+            {"spec": self._spec(), "results": [self._row("202404, Umbrella Health.pdf")]}
+        )
+        assert result.passed
+
+    def test_a_name_from_another_convention_is_caught(self) -> None:
+        """The exact failure: the date rendered raw instead of as %Y%m."""
+        result = self._check(
+            {
+                "spec": self._spec(),
+                "results": [self._row("2024-04-01, Umbrella Health.pdf")],
+            }
+        )
+        assert not result.passed
+        assert result.detail["divergent"][0]["convention"] == "202404, Umbrella Health.pdf"
+
+    def test_a_quarantined_item_is_not_judged(self) -> None:
+        """It has no name, so there is no name to disagree with."""
+        row = {**self._row("x"), "rendered": None}
+        result = self._check({"spec": self._spec(), "results": [row]})
+        assert not result.passed, "and nothing was checked, which is not a pass"
+        assert result.detail["checked"] == 0
+
+    def test_no_frozen_spec_is_a_failure_rather_than_a_pass(self) -> None:
+        """A check that cannot run has not been satisfied."""
+        assert not self._check({"results": [self._row("anything.pdf")]}).passed
+
+    def test_the_named_goal_actually_runs_it(self) -> None:
+        from shakespeare.capabilities import CapabilityRegistry
+        from shakespeare.operators.builtin import build_registry
+        from shakespeare.workflows import WorkflowRegistry
+
+        registry = WorkflowRegistry(
+            capabilities=CapabilityRegistry(), operators=build_registry()
+        )
+        goal = registry.get("rename_files").spec.graph.goal("named")
+        assert "convention_followed" in goal.gate.checks

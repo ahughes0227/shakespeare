@@ -55,7 +55,7 @@ goals:
       id: all_accounted
       kind: hybrid
       requires: [ResolvedNames]
-      checks: [resolution_accounted]
+      checks: [resolution_accounted, convention_followed]
       rubric: >
         Every item must be either named or quarantined with a reason. Partial coverage is
         not sufficient: if items remain untouched, more work would change the outcome.

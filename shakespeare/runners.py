@@ -187,6 +187,7 @@ def _render_template(arguments: dict[str, Any], workspace: Path) -> dict[str, An
             update={
                 "values": claimed.get(item.item_id, {}).get("values") or {},
                 "confidences": claimed.get(item.item_id, {}).get("confidences") or {},
+                "extension": claimed.get(item.item_id, {}).get("extension") or "",
             }
         )
         for item in results
