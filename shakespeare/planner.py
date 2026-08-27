@@ -59,7 +59,7 @@ class ModelPlanner:
     prompts: PromptStore = field(default_factory=PromptStore)
     #: Pinned per signature: these are independently versioned artifacts and promoting
     #: one must not silently move the others.
-    route_version: str = "1.0.0"
+    route_version: str = "1.1.0"
     plan_version: str = "1.0.0"
     review_version: str = "1.1.0"
 
@@ -269,7 +269,7 @@ class ModelGoalPlanner:
     gateway: Gateway
     profile: ModelProfile
     prompts: PromptStore = field(default_factory=PromptStore)
-    route_version: str = "1.0.0"
+    route_version: str = "1.1.0"
     goal_version: str = "1.0.0"
     capability_version: str = "1.1.0"
     judge_version: str = "1.1.0"

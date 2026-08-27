@@ -283,8 +283,18 @@ class TestTheFrozenConventionIsBinding:
         """It has no name, so there is no name to disagree with."""
         row = {**self._row("x"), "rendered": None}
         result = self._check({"spec": self._spec(), "results": [row]})
-        assert not result.passed, "and nothing was checked, which is not a pass"
+        assert result.passed, "nothing diverged"
         assert result.detail["checked"] == 0
+
+    def test_a_corpus_nothing_can_read_is_all_quarantine_and_not_a_failure(self) -> None:
+        """A live run on documents with no text layer aborted here, having behaved right.
+
+        Every file unreadable means every file quarantined, which renders no names. That
+        is the safe failure working, and this check has nothing to object to. Coverage is
+        `resolution_accounted`'s question, not this one.
+        """
+        unread = [{**self._row("x"), "rendered": None, "values": {}} for _ in range(5)]
+        assert self._check({"spec": self._spec(), "results": unread}).passed
 
     def test_no_frozen_spec_is_a_failure_rather_than_a_pass(self) -> None:
         """A check that cannot run has not been satisfied."""
@@ -300,3 +310,60 @@ class TestTheFrozenConventionIsBinding:
         )
         goal = registry.get("rename_files").spec.graph.goal("named")
         assert "convention_followed" in goal.gate.checks
+
+
+class TestAnUnmetRequestIsRemembered:
+    """A workflow is a saved process, so the list of unsaved ones is worth keeping.
+
+    Three live requests — summarise, spreadsheet, translate — were refused correctly and
+    the router's analysis of what each would take was rendered to a terminal and lost with
+    the process. An operator a capability lacks has had a backlog since admission was
+    written; a process nobody has saved had nowhere to be recorded at all.
+    """
+
+    def _refuse(self, tmp_path: Path, requires: tuple[str, ...] = ()):
+        planner = ScriptedGoalPlanner(
+            route=RouteDecision(
+                workflow_id="",
+                supported=False,
+                rationale="the only workflow renames files",
+                requires=requires,
+            )
+        )
+        runtime, request, audit, _ = build(tmp_path, planner=planner)
+        return runtime.run(request, commit=False), audit
+
+    def test_an_unmet_request_is_not_an_invalid_composition(self, tmp_path: Path) -> None:
+        """A gap is a thing to go and fill; a malformed composition is a mistake."""
+        result, audit = self._refuse(tmp_path)
+        assert result.outcome == "unsupported"
+        assert result.error_code == "unsupported"
+        audit.close()
+
+    def test_what_it_would_take_is_kept(self, tmp_path: Path) -> None:
+        needed = ("read a document into structured fields", "write a spreadsheet")
+        result, audit = self._refuse(tmp_path, needed)
+        gaps = audit.capability_gaps()
+        assert len(gaps) == 1
+        assert tuple(gaps[0]["requires"]) == needed
+        assert gaps[0]["run_id"] == result.run_id
+        audit.close()
+
+    def test_the_prompt_itself_is_never_stored(self, tmp_path: Path) -> None:
+        """It is the user's content. A digest is enough to recognise it again."""
+        _, audit = self._refuse(tmp_path, ("write a spreadsheet",))
+        gap = audit.capability_gaps()[0]
+        assert "invoice" not in str(gap).lower()
+        assert len(gap["prompt_digest"]) >= 32
+        audit.close()
+
+    def test_the_same_request_asked_twice_is_counted(self, tmp_path: Path) -> None:
+        """How often a process has been wanted is the order worth building in."""
+        planner = ScriptedGoalPlanner(
+            route=RouteDecision(workflow_id="", supported=False, rationale="no")
+        )
+        runtime, request, audit, _ = build(tmp_path, planner=planner)
+        runtime.run(request, commit=False)
+        runtime.run(request, commit=False)
+        assert {gap["asked"] for gap in audit.capability_gaps()} == {2}
+        audit.close()
