@@ -338,7 +338,9 @@ class Executor:
                     started_at=started_at,
                     ended_at=_isoformat(time.time()),
                     error_code=ErrorCode.COMPOSITION_INVALID,
-                    error_detail=_explain(invocation.operator, exc, arguments),
+                    error_detail=_explain(
+                        invocation.operator, exc, arguments, stage_inputs, prior
+                    ),
                 )
 
             try:
@@ -378,7 +380,11 @@ class Executor:
 
 
 def _explain(
-    operator: str, error: ValidationError, arguments: dict[str, Any] | None = None
+    operator: str,
+    error: ValidationError,
+    arguments: dict[str, Any] | None = None,
+    stage_inputs: dict[str, Any] | None = None,
+    prior: dict[str, dict[str, Any]] | None = None,
 ) -> str:
     """A message an agent can act on next attempt, not a stack of pydantic internals."""
     problems = []
@@ -390,7 +396,25 @@ def _explain(
     # and it guessed wrong three attempts running on a value that was sitting in front
     # of it under another name.
     bindable = _bindable(arguments or {})
-    return f"{detail}; bindable here: {', '.join(bindable) or 'nothing'}"
+    detail = f"{detail}; bindable here: {', '.join(bindable) or 'nothing'}"
+
+    # And what it has not pulled in yet. An invocation can only bind from what its own
+    # `inputs` reference, so listing only that leaves out the one thing that would have
+    # worked: a live run needed `decision_digest`, the value that fills it was in the
+    # working set under `digest`, and every message it got listed everything except that.
+    unreferenced = sorted(
+        set(_bindable(stage_inputs or {}))
+        - set(bindable)
+        - set(prior or {})
+    )
+    produced = sorted(
+        f"{name}.{key}" for name, output in (prior or {}).items() for key in (output or {})
+    )
+    if unreferenced:
+        detail = f"{detail}; referenceable via inputs: {', '.join(unreferenced)}"
+    if produced:
+        detail = f"{detail}; produced by earlier invocations: {', '.join(produced)}"
+    return detail
 
 
 def _required_of(operator: str) -> frozenset[str]:
