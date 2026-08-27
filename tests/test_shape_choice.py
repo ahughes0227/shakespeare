@@ -201,7 +201,7 @@ class TestTheDurableShapeWorks:
 
     def test_the_table_outlives_the_response_that_filled_it(self, tmp_path: Path) -> None:
         """A batch that fails costs itself, not the run's progress."""
-        from shakespeare.operators import records
+        from shakespeare.domain import records
 
         workspace = tmp_path / "work"
         records.append(
@@ -231,7 +231,7 @@ class TestTheFrozenConventionIsBinding:
 
     @staticmethod
     def _check(payload: dict) -> object:
-        from shakespeare.operators.planning import check_convention_followed
+        from shakespeare.domain.planning import check_convention_followed
 
         return check_convention_followed("convention_followed", payload)
 

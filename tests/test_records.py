@@ -11,8 +11,8 @@ from pathlib import Path
 
 import pytest
 from shakespeare.contracts import BudgetEnvelope, Composition, DomainSpec, Invocation
+from shakespeare.domain import records
 from shakespeare.executor import Budget, Executor
-from shakespeare.operators import records
 from shakespeare.operators.builtin import build_registry
 from shakespeare.verifier import Verifier
 
@@ -210,7 +210,7 @@ class TestAnUnbalancedPlanNamesItsCause:
     """Two different failures wear the same counts, and only one of them is losing work."""
 
     def _assemble(self, entries_share_ids: bool):
-        from shakespeare.operators.planning import ScannedItem, assemble_plan
+        from shakespeare.domain.planning import ScannedItem, assemble_plan
 
         scanned = tuple(
             ScannedItem(
@@ -233,7 +233,7 @@ class TestAnUnbalancedPlanNamesItsCause:
         )
 
     def test_shared_identities_are_reported_as_shared(self) -> None:
-        from shakespeare.operators.planning import AssemblyError
+        from shakespeare.domain.planning import AssemblyError
 
         with pytest.raises(AssemblyError, match="share an item_id"):
             self._assemble(entries_share_ids=True)

@@ -29,8 +29,8 @@ from .contracts import (
     RequestContract,
     ReversalRecord,
 )
+from .domain import mutation
 from .gateway import GatewayError
-from .operators import mutation
 from .planner import FakePlanner, Planner
 from .workflows import WorkflowRegistryError
 
@@ -441,7 +441,7 @@ def apply(
 
 def _verify_sources(plan: ChangePlan, input_root: Path) -> list[str]:
     """Source paths whose contents no longer match the digests recorded in the plan."""
-    from .operators.filesystem import digest_file
+    from .domain.filesystem import digest_file
 
     drifted: list[str] = []
     for entry in plan.entries:

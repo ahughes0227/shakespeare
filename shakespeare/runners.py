@@ -18,7 +18,7 @@ from typing import Any
 from pydantic import ValidationError
 
 from .contracts import ChangeAction, ChangePlan, OperatorFamily, ReversalRecord
-from .operators import extraction, filesystem, mutation, naming, planning, records, text
+from .domain import extraction, filesystem, mutation, naming, planning, records, text
 
 Operation = Callable[[dict[str, Any], Path], dict[str, Any]]
 

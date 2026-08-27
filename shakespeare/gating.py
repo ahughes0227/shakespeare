@@ -13,8 +13,8 @@ from dataclasses import dataclass
 from typing import Any, Protocol
 
 from .artifacts import Artifact, ArtifactStore
+from .domain.planning import CHECK_REQUIREMENTS, run_check
 from .goals import Gate, GateKind, GateOutcome, GateResult, Goal, evidence_for
-from .operators.planning import CHECK_REQUIREMENTS, run_check
 
 
 class GateJudge(Protocol):

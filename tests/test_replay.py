@@ -13,8 +13,8 @@ import pytest
 from shakespeare.audit import AuditStore
 from shakespeare.capabilities import CapabilityRegistry
 from shakespeare.contracts import ChangeAction
+from shakespeare.domain import mutation
 from shakespeare.executor import Executor
-from shakespeare.operators import mutation
 from shakespeare.operators.builtin import build_registry
 from shakespeare.replay import ReplayError, assert_same_workflow, journal_components
 from shakespeare.runtime import Runtime

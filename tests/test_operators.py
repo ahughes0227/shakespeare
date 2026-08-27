@@ -4,16 +4,16 @@ import pathlib
 
 import pytest
 from shakespeare.contracts import ChangeAction, OperatorFamily
-from shakespeare.operators.builtin import BUILTIN, RUNTIME_ONLY, build_registry
-from shakespeare.operators.extraction import Backend, extract
-from shakespeare.operators.filesystem import scan
-from shakespeare.operators.planning import (
+from shakespeare.domain.extraction import Backend, extract
+from shakespeare.domain.filesystem import scan
+from shakespeare.domain.planning import (
     AssemblyError,
     PlannedName,
     ScannedItem,
     assemble_plan,
     run_check,
 )
+from shakespeare.operators.builtin import BUILTIN, RUNTIME_ONLY, build_registry
 from shakespeare.runners import RunnerError, allowlist, pure_transform
 
 

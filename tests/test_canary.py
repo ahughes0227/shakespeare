@@ -22,7 +22,7 @@ from shakespeare.canary import (
 )
 from shakespeare.cli import app
 from shakespeare.contracts import ChangeAction, ChangePlan
-from shakespeare.operators.planning import RenameEntry
+from shakespeare.domain.planning import RenameEntry
 from typer.testing import CliRunner
 
 from harness import INVOICES, build, seed_invoices

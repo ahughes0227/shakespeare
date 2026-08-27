@@ -19,10 +19,10 @@ from shakespeare.artifacts import ArtifactStore, Quality
 from shakespeare.capabilities import CapabilityRegistry, CapabilityRunner, CapabilitySpec
 from shakespeare.capabilities.runner import Organization
 from shakespeare.contracts import BudgetEnvelope, ErrorCode, Invocation
+from shakespeare.domain.planning import plan_batch
 from shakespeare.executor import Budget, Executor
 from shakespeare.gateway import GatewayError
 from shakespeare.operators.builtin import RUNTIME_ONLY, build_registry
-from shakespeare.operators.planning import plan_batch
 from shakespeare.verifier import Verifier
 
 DIVISIBLE = CapabilitySpec(

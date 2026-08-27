@@ -30,9 +30,9 @@ from .contracts import (
     content_digest,
 )
 from .control import Controller, GoalAttempt, commit_if_verified, new_run_id
+from .domain import mutation
 from .executor import Budget, Executor
 from .goals import Goal
-from .operators import mutation
 from .prompts import PromptStore
 from .registry import OperatorRegistry
 from .telemetry import Tracer

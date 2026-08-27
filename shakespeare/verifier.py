@@ -20,8 +20,8 @@ from .contracts import (
     StagePlan,
     StageSpec,
 )
+from .domain.planning import run_check
 from .operators.builtin import RUNTIME_ONLY
-from .operators.planning import run_check
 from .registry import OperatorRegistry
 
 

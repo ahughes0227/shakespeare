@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import Any, TypedDict
 
 from .contracts import RequestContract
-from .operators import mutation
+from .domain import mutation
 from .runtime import RunResult, Runtime
 
 

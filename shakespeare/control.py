@@ -34,9 +34,9 @@ from .contracts import (
     content_digest,
     utc_now,
 )
+from .domain import mutation
 from .gating import GateEvaluator
 from .goals import GateResult, Goal, GoalGraph
-from .operators import mutation
 from .telemetry import Tracer
 from .verifier import Denial
 

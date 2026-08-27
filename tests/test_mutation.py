@@ -6,7 +6,7 @@ import pathlib
 
 import pytest
 from shakespeare.contracts import ChangeAction, ChangePlan
-from shakespeare.operators.mutation import (
+from shakespeare.domain.mutation import (
     MutationError,
     commit,
     discard,
@@ -14,7 +14,7 @@ from shakespeare.operators.mutation import (
     stage_plan,
     verify_tree,
 )
-from shakespeare.operators.planning import RenameEntry
+from shakespeare.domain.planning import RenameEntry
 
 
 def _tree(root: pathlib.Path) -> dict[str, str]:

@@ -11,8 +11,8 @@ import shutil
 from pathlib import Path
 
 import pytest
-from shakespeare.operators.extraction import Backend, extract
-from shakespeare.operators.filesystem import scan
+from shakespeare.domain.extraction import Backend, extract
+from shakespeare.domain.filesystem import scan
 
 from fixtures.build import build_tree, cleanup
 
@@ -106,7 +106,7 @@ class TestDegradation:
 
     def test_char_limit_is_honoured(self, tree) -> None:
         """An unbounded document must not become an unbounded prompt."""
-        from shakespeare.operators.extraction import ExtractOptions
+        from shakespeare.domain.extraction import ExtractOptions
 
         _, made = tree
         unclipped = _extract(

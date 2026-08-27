@@ -19,9 +19,9 @@ import yaml
 from ..capabilities import CapabilityRegistry
 from ..compose import catalog as hydra_catalog
 from ..contracts import Contract, SemanticCard, content_digest
+from ..domain.planning import CHECKS
 from ..goals import Goal, GoalGraph
 from ..operators.builtin import RUNTIME_ONLY
-from ..operators.planning import CHECKS
 from ..registry import OperatorRegistry
 
 WORKFLOW_ROOT = Path(__file__).resolve().parents[2] / "_workflows"

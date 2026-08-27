@@ -66,7 +66,7 @@ def values_for(
 
     Item ids are content-addressed, so these must be built after the tree is seeded.
     """
-    from shakespeare.operators.filesystem import scan
+    from shakespeare.domain.filesystem import scan
 
     contents = contents or INVOICES
     resolved: list[dict[str, Any]] = []

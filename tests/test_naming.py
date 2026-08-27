@@ -9,7 +9,7 @@ from __future__ import annotations
 import random
 
 import pytest
-from shakespeare.operators.naming import (
+from shakespeare.domain.naming import (
     Candidate,
     CasePolicy,
     CollisionPolicy,

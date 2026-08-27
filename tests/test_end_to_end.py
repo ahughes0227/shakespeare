@@ -18,10 +18,10 @@ from shakespeare.audit import AuditStore
 from shakespeare.capabilities import CapabilityRegistry
 from shakespeare.capabilities.runner import Organization
 from shakespeare.contracts import ChangeAction, RequestContract, RouteDecision
+from shakespeare.domain.filesystem import scan
 from shakespeare.executor import Executor
 from shakespeare.gateway import FakeGateway, ModelProfile
 from shakespeare.operators.builtin import build_registry
-from shakespeare.operators.filesystem import scan
 from shakespeare.planner import CapabilityChoice, GoalChoice, Judgment, ModelGoalPlanner
 from shakespeare.prompts import PromptStore
 from shakespeare.runtime import Runtime
