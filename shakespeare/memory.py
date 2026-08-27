@@ -280,13 +280,6 @@ def floor_proposal(
         )
 
     candidate = floor_for(observations, precision)
-    accepted = sum(1 for confidence, _ in observations if candidate is not None
-                   and confidence >= candidate)
-    detail = {
-        "precision": precision,
-        "accepted": accepted,
-        "quarantined": len(observations) - accepted,
-    }
     if candidate is None:
         return Proposal(
             subject=subject,
@@ -300,8 +293,17 @@ def floor_proposal(
                 f"no floor reaches {precision:.0%} accuracy — at this precision the "
                 f"claims are not worth anything, and raising the floor will not fix that"
             ),
-            detail=detail,
+            # No accepted count, because no floor was found: reporting one would describe
+            # a threshold that does not exist.
+            detail={"precision": precision},
         )
+
+    accepted = sum(1 for confidence, _ in observations if confidence >= candidate)
+    detail = {
+        "precision": precision,
+        "accepted": accepted,
+        "quarantined": len(observations) - accepted,
+    }
     return Proposal(
         subject=subject,
         resolved_model=model,

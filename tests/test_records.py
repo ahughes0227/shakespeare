@@ -149,3 +149,58 @@ class TestThroughTheExecutor:
         )
         assert results[0].output is not None
         assert str(tmp_path / "work") in results[0].output["path"]
+
+
+class TestRenderingFromTheTable:
+    """The renderer's items now come from storage, which is the whole point of the table.
+
+    A live run stored all sixty rows, read them back, rendered nothing, and failed a gate
+    two goals later — because the key it passed was `records` and the renderer only
+    answered to `items`.
+    """
+
+    def _render(self, arguments: dict, tmp_path: Path) -> dict:
+        from shakespeare.runners import pure_transform
+
+        return pure_transform(
+            {"operation": "render_template", **arguments}, tmp_path
+        )
+
+    @staticmethod
+    def _spec() -> dict:
+        return {
+            "template": "{vendor}",
+            "fields": [{"name": "vendor"}],
+        }
+
+    def _rows(self) -> list[dict]:
+        return [
+            {
+                "item_id": "a",
+                "directory": "2024/q1",
+                "extension": ".pdf",
+                "values": {"vendor": "ACME"},
+                "confidences": {"vendor": 0.99},
+            }
+        ]
+
+    def test_records_are_accepted_as_items(self, tmp_path: Path) -> None:
+        out = self._render({**self._spec(), "records": self._rows()}, tmp_path)
+        assert [item["name"] for item in out["candidates"]] == ["ACME.pdf"]
+
+    def test_a_round_trip_through_the_store_renders(self, tmp_path: Path) -> None:
+        """Written, read back, rendered — with no model anywhere in the path."""
+        records.append(workspace=tmp_path, table="items", rows=tuple(self._rows()))
+        stored = records.read(workspace=tmp_path, table="items")
+        out = self._render({**self._spec(), "records": stored["records"]}, tmp_path)
+        assert out["candidates"][0]["directory"] == "2024/q1"
+
+    def test_rendering_nothing_is_refused_rather_than_reported_as_success(
+        self, tmp_path: Path
+    ) -> None:
+        with pytest.raises(ValueError, match="no items"):
+            self._render(self._spec(), tmp_path)
+
+    def test_the_refusal_names_where_items_come_from(self, tmp_path: Path) -> None:
+        with pytest.raises(ValueError, match="record.read"):
+            self._render({**self._spec(), "records": []}, tmp_path)

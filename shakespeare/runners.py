@@ -112,7 +112,12 @@ def _render_items(arguments: dict[str, Any]) -> list[dict[str, Any]]:
     Deriving them is what makes a purely sequential rename cost one invocation and no
     parameters — the agent never has to transcribe the inventory to name files by order.
     """
-    supplied = arguments.get("items") or arguments.get("scanned") or arguments.get("inventory")
+    supplied = (
+        arguments.get("items")
+        or arguments.get("records")
+        or arguments.get("scanned")
+        or arguments.get("inventory")
+    )
     resolved: list[dict[str, Any]] = []
     for item in supplied or ():
         # Shape-driven rather than key-driven: an inventory entry carries `relpath`, a
@@ -150,6 +155,14 @@ def _render_template(arguments: dict[str, Any], workspace: Path) -> dict[str, An
         policy = _naming_policy(arguments)
 
     items = _render_items(arguments)
+    if not items:
+        # Rendering nothing is never the answer, and reporting it as success is how a run
+        # stores sixty records, renders none of them, and fails a gate two goals later
+        # with no sign of where it went wrong.
+        raise ValueError(
+            "name.render was given no items. Bind them from record.read (`records`), "
+            "fs.scan (`items`), or pass `items` directly"
+        )
     floor = _cfg(arguments, "confidence", "floor", None)
     if spec_payload is not None and floor is None:
         floor = naming.NamingSpec.model_validate(spec_payload).confidence_floor

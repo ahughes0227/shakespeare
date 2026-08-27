@@ -118,10 +118,12 @@ class TestGates:
         audit.close()
 
     def test_a_failed_deterministic_check_is_insufficient(self, tmp_path: Path) -> None:
-        from harness import rename_agent
+        from harness import rename_agent, seed_invoices, values_for
 
-        # A resolve capability that renders nothing: the plan cannot account for the set.
-        runtime, request, audit, _ = build(tmp_path, agents={"*": rename_agent([])})
+        # A resolve capability that names one of three: evidence exists, and it does not
+        # account for the set. (Naming *none* is refused outright by the renderer now.)
+        partial = values_for(seed_invoices(tmp_path / "in"))[:1]
+        runtime, request, audit, _ = build(tmp_path, agents={"*": rename_agent(partial)})
         result = runtime.run(request, commit=False)
         named = [a for a in result.attempts if a.goal_id == "named"]
         assert named and named[-1].gate.outcome is GateOutcome.INSUFFICIENT
@@ -224,10 +226,11 @@ class TestARetryIsToldWhyItIsRetrying:
 
     @staticmethod
     def _contexts(tmp_path: Path) -> list[tuple[str, dict]]:
-        from harness import rename_agent
+        from harness import rename_agent, seed_invoices, values_for
 
         seen: list[tuple[str, dict]] = []
-        inner = rename_agent([])  # renders nothing, so 'named' is rejected every time
+        # Names one of three, so 'named' is rejected every time on its accounting.
+        inner = rename_agent(values_for(seed_invoices(tmp_path / "in"))[:1])
 
         class Recording:
             def organize(self, *, capability, context, **rest):

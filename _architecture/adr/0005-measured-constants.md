@@ -1,4 +1,4 @@
-# ADR 0004 — Memory is measured constants, not a scratchpad
+# ADR 0005 — Memory is measured constants, not a scratchpad
 
 **Status:** accepted · **Date:** 2026-08-26
 

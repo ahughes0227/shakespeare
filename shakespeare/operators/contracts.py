@@ -67,6 +67,11 @@ class RenderInput(OperatorInput):
     fields: list[dict[str, Any]] | None = None
     items: list[dict[str, Any]] | None = None
     scanned: list[dict[str, Any]] | None = None
+    #: Rows straight from the record store. Bind from record.read, whose output key is
+    #: `records`: the renderer's items now legitimately come from storage, and a live run
+    #: stored all sixty rows, read them back, and rendered nothing because the key it
+    #: passed was not one this operator would answer to.
+    records: list[dict[str, Any]] | None = None
 
 
 class CollisionInput(OperatorInput):
