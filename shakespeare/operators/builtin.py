@@ -21,12 +21,48 @@ def _spec(
     description: str,
     *,
     operation: str,
+    composable: bool = True,
     features: frozenset[str] = frozenset(),
     side_effects: tuple[str, ...] = (),
     risk: RiskLevel = RiskLevel.LOW,
     idempotent: bool = True,
     timeout_seconds: float = 300,
 ) -> OperatorSpec:
+    """One operator, declared in one block, or not registered at all.
+
+    An operator's definition is spread over several files by necessity — the spec here,
+    its argument model and produced keys in `contracts`, its marshalling in `runners`, its
+    logic in a domain module. That is tolerable while every piece is guaranteed to arrive;
+    it is not while a piece can be forgotten. So the pieces are checked here, at import,
+    rather than trusted: an operator missing its argument model or its declared outputs
+    fails the moment the registry is built, naming what is absent.
+    """
+    from ..families import allowed_features
+    from ..runners import allowlist
+    from .contracts import INPUT_MODELS, OUTPUT_KEYS
+
+    if operation not in allowlist(family):
+        raise ValueError(
+            f"{name}: {family.value} has no vetted operation {operation!r}; "
+            f"vetted operations are {sorted(allowlist(family))}"
+        )
+    if operation not in allowed_features(family):
+        raise ValueError(
+            f"{name}: {family.value}'s manifest does not declare {operation!r}, so no "
+            f"request could ever name it"
+        )
+    if composable:
+        missing = [
+            what
+            for what, present in (
+                ("an argument model in INPUT_MODELS", name in INPUT_MODELS),
+                ("declared outputs in OUTPUT_KEYS", name in OUTPUT_KEYS),
+            )
+            if not present
+        ]
+        if missing:
+            raise ValueError(f"{name} is registered without {' and '.join(missing)}")
+
     return OperatorSpec(
         name=name,
         version="1.0.0",
@@ -184,6 +220,7 @@ BUILTIN: dict[str, tuple[OperatorSpec, str]] = {
                 "fs.stage",
                 OperatorFamily.FILESYSTEM_MUTATION,
                 "Materialise a plan into a staging tree by copying.",
+                composable=False,
                 operation="stage_write",
                 features=frozenset({"mirror_tree", "journal_reverse"}),
                 side_effects=("write:staging_root",),
@@ -197,6 +234,7 @@ BUILTIN: dict[str, tuple[OperatorSpec, str]] = {
                 "fs.commit",
                 OperatorFamily.FILESYSTEM_MUTATION,
                 "Atomically move a verified staging tree into the output root.",
+                composable=False,
                 operation="atomic_move",
                 features=frozenset({"atomic_move", "idempotency_receipt"}),
                 side_effects=("write:output_root",),
@@ -210,6 +248,7 @@ BUILTIN: dict[str, tuple[OperatorSpec, str]] = {
                 "fs.reverse",
                 OperatorFamily.FILESYSTEM_MUTATION,
                 "Reverse one journaled mutation.",
+                composable=False,
                 operation="journal_reverse",
                 features=frozenset({"journal_reverse"}),
                 side_effects=("write:output_root",),
@@ -223,6 +262,7 @@ BUILTIN: dict[str, tuple[OperatorSpec, str]] = {
                 "fs.discard",
                 OperatorFamily.FILESYSTEM_MUTATION,
                 "Discard an uncommitted staging tree.",
+                composable=False,
                 operation="discard",
                 side_effects=("write:staging_root",),
                 risk=RiskLevel.HIGH,

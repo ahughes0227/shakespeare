@@ -641,6 +641,68 @@ def capabilities_list() -> None:
     console.print(table)
 
 
+@app.command("operator")
+def operator_show(name: str) -> None:
+    """Everything about one operator, in one place.
+
+    An operator's definition is necessarily spread over several files: the spec, its
+    argument model, its produced keys, its marshalling and its logic. A reader should not
+    have to visit all of them to learn what to expect, so this assembles the whole picture
+    — including the family contract, which is what actually bounds the operator's
+    behaviour.
+    """
+    from . import families
+    from .operators.builtin import RUNTIME_ONLY
+    from .operators.contracts import OUTPUT_KEYS, argument_summary
+
+    services = _services(planner=_no_model(), agents={})
+    if name not in services.operators:
+        known = sorted(spec.name for spec in services.operators.specs())
+        _fail(f"no operator named {name!r}. Registered: {', '.join(known)}")
+    spec = services.operators.get(name).spec
+
+    console.print(f"[bold]{spec.name}[/bold] {spec.version} — {spec.description}")
+    facts = Table(show_header=False, box=None, pad_edge=False)
+    facts.add_column(style="dim")
+    facts.add_column()
+    facts.add_row("family", str(spec.family))
+    facts.add_row("runner", spec.entrypoint)
+    facts.add_row("operation", ", ".join(sorted(spec.features)) or "—")
+    facts.add_row("risk", str(spec.risk))
+    facts.add_row("access", "runtime only" if name in RUNTIME_ONLY else "composable")
+    facts.add_row("idempotent", "yes" if spec.idempotent else "no")
+    facts.add_row("timeout", f"{spec.timeout_seconds:g}s")
+    facts.add_row("side effects", ", ".join(spec.side_effects) or "none")
+    console.print(facts)
+
+    summary = argument_summary(name)
+    if summary:
+        arguments = Table(title="Arguments", title_justify="left")
+        arguments.add_column("name", style="bold")
+        arguments.add_column("required")
+        arguments.add_column("where it comes from")
+        for kind in ("required", "optional"):
+            for entry in summary.get(kind, []):
+                arguments.add_row(
+                    entry["name"], "yes" if kind == "required" else "", entry.get("note", "")
+                )
+        console.print(arguments)
+    produced = OUTPUT_KEYS.get(name)
+    console.print(
+        f"[dim]produces:[/dim] {', '.join(produced) if produced else 'nothing an agent binds'}"
+    )
+
+    # The family card is the operator's real contract: lifecycle, risks and failure modes
+    # are declared once per family and inherited, not restated per operator.
+    _, card = families.load_all()[spec.family]
+    contract = Table(title=f"{spec.family} contract", title_justify="left", show_header=False)
+    contract.add_column(style="dim")
+    contract.add_column(overflow="fold")
+    for field in ("lifecycle", "side_effects", "risks", "failure_modes", "resource_limits"):
+        contract.add_row(field.replace("_", " "), getattr(card, field).strip())
+    console.print(contract)
+
+
 @app.command("operators")
 def operators_list() -> None:
     from .operators.builtin import RUNTIME_ONLY
