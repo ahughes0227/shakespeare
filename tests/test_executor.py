@@ -123,3 +123,87 @@ class TestAMissingArgumentSaysWhatIsAvailable:
         )
         detail = result[0].error_detail or ""
         assert "config" not in detail and "operation" not in detail
+
+
+class TestADottedBindingNamesWhatWasProduced:
+    """The mistake is usually the invocation id, so listing working values does not help.
+
+    A live run guessed `collide.resolutions` at an invocation actually called
+    `resolve_collisions`, and was told what was bindable without being told what it had
+    just produced. It guessed again, twice, and the run lost its last goal.
+    """
+
+    def _run(self, tmp_path: Path, binding: dict[str, str]):
+        operators = build_registry()
+        return Executor(operators, Verifier(operators)).execute(
+            Composition(
+                domain_id="compose",
+                rationale="plan",
+                invocations=(
+                    Invocation(
+                        invocation_id="resolve_collisions",
+                        operator="name.collide",
+                        inputs=("candidates", "unrendered"),
+                    ),
+                    Invocation(
+                        invocation_id="assemble",
+                        operator="plan.assemble",
+                        # Everything else resolves, so only the binding under test can
+                        # be the one that fails.
+                        inputs=(
+                            "run_id", "workflow_id", "workflow_digest", "skipped",
+                            "items", "digest",
+                        ),
+                        bindings={"scanned": "items", "decision_digest": "digest", **binding},
+                    ),
+                ),
+            ),
+            DomainSpec(
+                id="compose",
+                scope="plan",
+                catalog=frozenset({"name.collide", "plan.assemble"}),
+            ),
+            stage_inputs={
+                "candidates": [],
+                "unrendered": [{"item_id": "a", "reason": "no_text"}],
+                "items": [
+                    {
+                        "item_id": "a",
+                        "relpath": "q/a.pdf",
+                        "sha256": "0" * 64,
+                        "size_bytes": 3,
+                        "media_type": "application/pdf",
+                    }
+                ],
+                "skipped": [],
+                "run_id": "r",
+                "workflow_id": "w",
+                "workflow_digest": "d",
+                "digest": "s",
+            },
+            config={},
+            workspace=tmp_path / "work",
+            budget=Budget(envelope=BudgetEnvelope(operator_calls="9"), items=1),
+        )
+
+    def test_a_wrong_invocation_id_is_answered_with_the_right_one(
+        self, tmp_path: Path
+    ) -> None:
+        result = self._run(tmp_path, {"planned": "collide.resolutions"})
+        detail = result[1].error_detail or ""
+        assert "names no earlier invocation" in detail
+        assert "resolve_collisions.resolutions" in detail
+
+    def test_the_binding_it_offers_actually_works(self, tmp_path: Path) -> None:
+        """Including on the all-quarantine set that produced the live failure."""
+        result = self._run(tmp_path, {"planned": "resolve_collisions.resolutions"})
+        assert all(item.succeeded for item in result), [
+            item.error_detail for item in result if not item.succeeded
+        ]
+
+    def test_it_does_not_offer_working_values_for_a_dotted_source(
+        self, tmp_path: Path
+    ) -> None:
+        """They were never the answer, and offering them is what sent it round again."""
+        detail = self._run(tmp_path, {"planned": "collide.resolutions"})[1].error_detail or ""
+        assert "workflow_digest" not in detail
