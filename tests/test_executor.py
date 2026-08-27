@@ -207,3 +207,80 @@ class TestADottedBindingNamesWhatWasProduced:
         """They were never the answer, and offering them is what sent it round again."""
         detail = self._run(tmp_path, {"planned": "collide.resolutions"})[1].error_detail or ""
         assert "workflow_digest" not in detail
+
+
+class TestAMissingArgumentNamesEverySourceThereIs:
+    """An invocation binds only from what its own `inputs` reference, so listing those is
+    not enough when the mistake is not having referenced the right thing.
+
+    A live run needed `decision_digest` three attempts running. The value that fills it was
+    in the working set the whole time under `digest`, and every message it received listed
+    everything except that.
+    """
+
+    def _run(self, tmp_path: Path):
+        operators = build_registry()
+        items = [
+            {
+                "item_id": "a",
+                "relpath": "q/a.pdf",
+                "sha256": "0" * 64,
+                "size_bytes": 3,
+                "media_type": "application/pdf",
+            }
+        ]
+        return Executor(operators, Verifier(operators)).execute(
+            Composition(
+                domain_id="compose",
+                rationale="plan",
+                invocations=(
+                    Invocation(
+                        invocation_id="resolve_collisions",
+                        operator="name.collide",
+                        inputs=("candidates", "unrendered"),
+                    ),
+                    Invocation(
+                        invocation_id="assemble",
+                        operator="plan.assemble",
+                        inputs=("run_id", "workflow_id", "workflow_digest", "items", "skipped"),
+                        bindings={
+                            "planned": "resolve_collisions.resolutions",
+                            "scanned": "items",
+                        },
+                    ),
+                ),
+            ),
+            DomainSpec(
+                id="compose",
+                scope="plan",
+                catalog=frozenset({"name.collide", "plan.assemble"}),
+            ),
+            stage_inputs={
+                "candidates": [],
+                "unrendered": [{"item_id": "a", "reason": "no_text"}],
+                "items": items,
+                "skipped": [],
+                "run_id": "r",
+                "workflow_id": "w",
+                "workflow_digest": "d",
+                "digest": "s",
+            },
+            config={},
+            workspace=tmp_path / "work",
+            budget=Budget(envelope=BudgetEnvelope(operator_calls="9"), items=1),
+        )
+
+    def test_it_names_a_value_the_invocation_never_referenced(self, tmp_path: Path) -> None:
+        detail = self._run(tmp_path)[1].error_detail or ""
+        assert "decision_digest: Field required" in detail
+        assert "referenceable via inputs: candidates, digest" in detail
+
+    def test_it_names_what_earlier_invocations_produced(self, tmp_path: Path) -> None:
+        detail = self._run(tmp_path)[1].error_detail or ""
+        assert "resolve_collisions.resolutions" in detail
+
+    def test_it_does_not_repeat_what_is_already_bound(self, tmp_path: Path) -> None:
+        """Two lists that overlap read as one long list, and get skimmed."""
+        detail = self._run(tmp_path)[1].error_detail or ""
+        referenceable = detail.split("referenceable via inputs: ")[1].split(";")[0]
+        assert "run_id" not in referenceable and "items" not in referenceable
