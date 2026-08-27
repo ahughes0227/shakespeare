@@ -292,6 +292,43 @@ class AuditStore:
                 recorded_at=_now(),
             )
 
+    def record_capability_gap(
+        self, *, run_id: str, prompt_digest: str, rationale: str, requires: tuple[str, ...]
+    ) -> None:
+        """A request nothing registered could serve, and what the router judged it needs."""
+        from uuid import uuid4
+
+        with self.engine.begin() as connection:
+            self._insert(
+                connection,
+                schema.capability_gaps,
+                gap_id=uuid4().hex,
+                run_id=run_id,
+                prompt_digest=prompt_digest,
+                rationale=rationale,
+                requires=canonical_json(list(requires)),
+                recorded_at=_now(),
+            )
+
+    def capability_gaps(self) -> list[dict[str, Any]]:
+        """Every unmet request, newest first, with how often each has been asked."""
+        import json
+
+        with self.engine.connect() as connection:
+            rows = connection.execute(
+                select(schema.capability_gaps).order_by(
+                    schema.capability_gaps.c.recorded_at.desc()
+                )
+            ).mappings()
+            gaps = [dict(row) for row in rows]
+        seen: dict[str, int] = {}
+        for gap in gaps:
+            seen[gap["prompt_digest"]] = seen.get(gap["prompt_digest"], 0) + 1
+            gap["requires"] = json.loads(gap["requires"])
+        for gap in gaps:
+            gap["asked"] = seen[gap["prompt_digest"]]
+        return gaps
+
     def record_admission_report(self, report: AdmissionReport, *, request_id: str,
                                 package_digest: str) -> None:
         with self.engine.begin() as connection:

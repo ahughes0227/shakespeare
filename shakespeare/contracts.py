@@ -109,6 +109,9 @@ class ErrorCode(StrEnum):
     COMMIT_VERIFICATION_FAILED = "commit_verification_failed"
     #: An invocation the composition never got to, because an earlier one failed.
     NOT_REACHED = "not_reached"
+    #: Nothing registered covers this request. Distinct from a malformed composition,
+    #: which is a mistake; this is a gap, and a gap is a thing to go and fill.
+    UNSUPPORTED = "unsupported"
     #: The work cannot be done as framed. Not a failed attempt — a statement that no
     #: attempt of this shape will work, ending the run for a person to read.
     IMPEDIMENT = "impediment"
@@ -587,6 +590,10 @@ class RouteDecision(Contract):
     workflow_id: str
     rationale: str = ""
     supported: bool = True
+    #: When unsupported: what serving this request would take, in the system's own terms.
+    #: A refusal that names the gap is the difference between a dead end and a backlog,
+    #: and the analysis is already being done — it was being printed and thrown away.
+    requires: tuple[str, ...] = ()
 
 
 class RequestContract(Contract):

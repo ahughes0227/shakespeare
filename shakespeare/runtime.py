@@ -119,11 +119,21 @@ class Runtime:
             )
         route, usage = self.planner.select_workflow(request, self.workflows.routing_catalog())
         if not route.supported or route.workflow_id not in self.workflows:
+            # The router has just worked out what serving this would take. Printing that
+            # and exiting throws away the one piece of analysis a person needs to close
+            # the gap, so it is recorded the way an unmet operator request has been since
+            # admission was written.
+            self.audit.record_capability_gap(
+                run_id=run_id,
+                prompt_digest=content_digest(request.prompt),
+                rationale=route.rationale,
+                requires=route.requires,
+            )
             return RunResult(
                 run_id=run_id,
                 workflow_id=route.workflow_id,
                 outcome="unsupported",
-                error_code=ErrorCode.COMPOSITION_INVALID,
+                error_code=ErrorCode.UNSUPPORTED,
                 detail=route.rationale or "no registered workflow handles this request",
             )
 

@@ -168,6 +168,19 @@ operator_requests = _table(
     Column("recorded_at", String, nullable=False),
 )
 
+#: Requests nothing registered could serve, with what the router judged they would take.
+#: An operator a capability lacks has had a backlog since admission was written; a
+#: workflow nobody has built had nowhere to be recorded at all.
+capability_gaps = _table(
+    "capability_gaps",
+    Column("gap_id", String, primary_key=True),
+    Column("run_id", String, nullable=False),
+    Column("prompt_digest", String, nullable=False),
+    Column("rationale", Text, nullable=False),
+    Column("requires", Text, nullable=False),
+    Column("recorded_at", String, nullable=False),
+)
+
 admission_reports = _table(
     "admission_reports",
     Column("report_id", String, primary_key=True),

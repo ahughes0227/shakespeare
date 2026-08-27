@@ -189,6 +189,34 @@ def plan_only(
         console.print(f"[dim]Plan written to {plan_out}[/dim]")
 
 
+@requests_app.command("gaps")
+def requests_gaps(
+    state_root: Annotated[Path | None, typer.Option("--state", hidden=True)] = None,
+) -> None:
+    """Requests nothing registered could serve, and what each would take to serve.
+
+    A workflow is a saved process. This is the list of processes nobody has saved yet,
+    ordered by how often they have been asked for — which is the order worth building in.
+    """
+    from rich.table import Table
+
+    gaps = _services(state_root).audit.capability_gaps()
+    if not gaps:
+        console.print("[dim]No unmet requests recorded.[/dim]")
+        return
+    table = Table(title="Unmet requests")
+    table.add_column("asked", justify="right")
+    table.add_column("prompt")
+    table.add_column("would need")
+    for gap in gaps:
+        table.add_row(
+            str(gap["asked"]),
+            gap["prompt_digest"][:12],
+            "\n".join(f"· {item}" for item in gap["requires"]) or gap["rationale"],
+        )
+    console.print(table)
+
+
 @app.command()
 def calibrate(
     prompt: Annotated[str, typer.Option("--prompt", "-p")],

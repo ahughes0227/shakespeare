@@ -314,9 +314,13 @@ def check_convention_followed(obligation_id: str, payload: dict[str, Any]) -> Ob
                 {"item_id": str(row.get("item_id", "")), "named": claimed,
                  "convention": str(expected.rendered)}
             )
+    # Divergence is the only thing this check is about. A corpus where every document is
+    # unreadable is legitimately all quarantine and renders nothing, and demanding that
+    # something was named would fail a run that behaved correctly — `resolution_accounted`
+    # is what makes sure every item is named or quarantined.
     return _result(
         obligation_id,
-        not divergent and checked > 0,
+        not divergent,
         checked=checked,
         divergent=divergent[:10],
     )
