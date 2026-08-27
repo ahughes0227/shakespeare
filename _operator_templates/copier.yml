@@ -18,6 +18,7 @@ operator_family:
     - readonly_scan
     - content_extract
     - pure_transform
+    - record_store
     - filesystem_mutation
 
 # Must equal FAMILY_RUNNERS[operator_family].  The factory rejects anything else, so a

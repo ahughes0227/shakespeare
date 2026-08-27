@@ -124,6 +124,45 @@ def usable(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     ]
 
 
+@dataclass(frozen=True)
+class Applicable:
+    """Evidence about the configuration that is declared now, and what was set aside."""
+
+    rows: list[dict[str, Any]]
+    #: What was excluded, and under which configuration it was recorded. Reported rather
+    #: than dropped quietly: a proposal built from a third of the ledger looks identical
+    #: to one built from all of it unless somebody says so.
+    set_aside: dict[str, int]
+
+    @property
+    def summary(self) -> str:
+        return ", ".join(f"{count} under {what}" for what, count in sorted(self.set_aside.items()))
+
+
+def applicable(
+    rows: list[dict[str, Any]], *, subject: str, prompt_version: str
+) -> Applicable:
+    """Keep only the observations that describe what is declared today.
+
+    A capability's version and its pinned prompt both change what it spends, so evidence
+    recorded under an older one is evidence about a different thing — the same reason the
+    model is part of a measurement's identity. Left unfiltered, bumping a capability to
+    1.1.0 would quietly propose 1.0.0's measured cost as 1.1.0's declared one.
+    """
+    kept: list[dict[str, Any]] = []
+    set_aside: dict[str, int] = {}
+    for row in rows:
+        if row["subject"] != subject:
+            key = row["subject"]
+        elif row["prompt_version"] != prompt_version:
+            key = f"{row['subject']} prompt {row['prompt_version'] or 'unversioned'}"
+        else:
+            kept.append(row)
+            continue
+        set_aside[key] = set_aside.get(key, 0) + 1
+    return Applicable(rows=kept, set_aside=set_aside)
+
+
 def cost_proposal(
     rows: list[dict[str, Any]],
     *,

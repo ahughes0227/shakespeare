@@ -128,6 +128,66 @@ class TestWhichObservationsCount:
         assert not memory.usable([{"weight": 30, "count": 15, "outcome": False, "bound": None}])
 
 
+class TestEvidenceAboutTheThingDeclaredNow:
+    """A capability version and a pinned prompt both change what a capability spends.
+
+    Left unfiltered, bumping a capability to 1.1.0 would quietly propose 1.0.0's measured
+    cost as 1.1.0's declared one — the same mistake as averaging two models together, in a
+    place that looks like bookkeeping rather than like evidence.
+    """
+
+    def rows(self, subject: str, prompt_version: str) -> dict[str, Any]:
+        return {
+            "subject": subject,
+            "prompt_version": prompt_version,
+            "value": 9000,
+            "weight": 30,
+            "count": 15,
+            "outcome": True,
+            "bound": None,
+            "run_id": "run-1",
+            "resolved_model": "gpt-5-mini",
+        }
+
+    def test_an_older_capability_version_is_set_aside(self) -> None:
+        found = memory.applicable(
+            [self.rows("resolve@1.0.0", "1.0.0"), self.rows("resolve@1.1.0", "1.0.0")],
+            subject="resolve@1.1.0",
+            prompt_version="1.0.0",
+        )
+        assert len(found.rows) == 1
+        assert found.set_aside == {"resolve@1.0.0": 1}
+
+    def test_an_older_prompt_is_set_aside(self) -> None:
+        found = memory.applicable(
+            [self.rows("resolve@1.0.0", "1.0.0"), self.rows("resolve@1.0.0", "1.1.0")],
+            subject="resolve@1.0.0",
+            prompt_version="1.1.0",
+        )
+        assert len(found.rows) == 1
+        assert "prompt 1.0.0" in found.summary
+
+    def test_what_was_set_aside_is_reported_rather_than_dropped_quietly(self) -> None:
+        """A proposal built from a third of the ledger looks like one built from all of it."""
+        found = memory.applicable(
+            [self.rows("resolve@1.0.0", "1.0.0")] * 4,
+            subject="resolve@2.0.0",
+            prompt_version="1.0.0",
+        )
+        assert found.rows == []
+        assert found.set_aside == {"resolve@1.0.0": 4}
+
+    def test_stale_evidence_cannot_reach_a_proposal(self, store: AuditStore) -> None:
+        """The whole point: twelve observations about 1.0.0 say nothing about 1.1.0."""
+        recorded = spread_over_runs(store, value=9000, weight=30, count=15)
+        current = memory.applicable(
+            recorded, subject="resolve@1.1.0", prompt_version="1.0.0"
+        )
+        proposal = memory.cost_proposal(current.rows, incumbent=674)
+        assert proposal.verdict is memory.Verdict.INSUFFICIENT
+        assert proposal.candidate is None
+
+
 class TestTheCostItSupports:
     def test_too_few_observations_proposes_nothing(self, store: AuditStore) -> None:
         proposal = memory.cost_proposal(

@@ -68,7 +68,18 @@ metadata attached to it, for the reason `canary` exists: a provider can change w
 alias resolves to, and a cost measured under one model is not evidence about another.
 Mixing models is refused rather than averaged.
 
-### 4. A truncated batch is a bound, not a measurement
+### 4. Evidence is scoped to the configuration declared now
+
+The model is part of a measurement's identity, and so are the capability's version and its
+pinned prompt: all three change what a capability spends. Left unscoped, bumping a
+capability to 1.1.0 would quietly propose 1.0.0's measured cost as 1.1.0's declared one —
+the same mistake as averaging two models together, in a place that looks like bookkeeping
+rather than like evidence.
+
+What is set aside is reported rather than dropped quietly. A proposal built from a third of
+the ledger looks identical to one built from all of it unless somebody says so.
+
+### 5. A truncated batch is a bound, not a measurement
 
 A batch cut off at the output ceiling never reported what it would have cost. It proved
 the cost is at least what fitted. `plan_batch` has always treated it that way within a run;
@@ -78,14 +89,14 @@ A batch that failed for any other reason is excluded entirely. It is evidence ab
 capability, not about the arithmetic, and averaging it in would drag the estimate toward
 whatever a failure happened to spend before dying.
 
-### 5. The estimate leans high, because the two errors do not cost the same
+### 6. The estimate leans high, because the two errors do not cost the same
 
 A batch sized too large is cut off, and that call is billed, wasted and retried. A batch
 sized too small is smaller than it needed to be, and every call in it still does work. So
 the proposal sits at a high quantile of observed rates rather than at the middle — and not
 at the maximum, which would let one pathological batch set every later one.
 
-### 6. A proposal refuses to average away the thing it cannot represent
+### 7. A proposal refuses to average away the thing it cannot represent
 
 Cost is measured per unit of material; `cost_per_item` is that rate declared for an item of
 average weight. Where item weight is uniform the distinction is invisible. Where it is not
@@ -96,7 +107,7 @@ Rather than emit a confident average, a proposal whose observed item weights var
 than 3x reports that the rate is sound and the conversion to one item is the part to
 distrust. Naming the limit is worth more than hiding it behind a number.
 
-### 7. A floor is never promoted on evidence alone
+### 8. A floor is never promoted on evidence alone
 
 Every other constant here has a cheap direction to be wrong in. A confidence floor does
 not: too high quarantines files a person then renames by hand, too low produces a
@@ -108,7 +119,7 @@ When no floor reaches the precision at all, it says so rather than proposing a h
 because at that point the claims are not worth anything and raising the floor will not fix
 that.
 
-### 8. `max_goal_attempts` needed no new measurement at all
+### 9. `max_goal_attempts` needed no new measurement at all
 
 Whether an attempt ever recovered is already recorded in `stage_attempts` and
 `stage_verdicts`. `measurements recovery` reads it: attempts by number, the deepest one

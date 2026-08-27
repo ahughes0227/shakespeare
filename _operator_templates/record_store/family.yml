@@ -1,3 +1,6 @@
 family: record_store
 revision: "1.0"
+# Names a request may use. It must contain every vetted operation for the family,
+# because a request selects its operation by naming it here — a manifest that omits
+# its own operations makes the family unrequestable. Configuration slots follow.
 allowed_features: [record_append, record_read]

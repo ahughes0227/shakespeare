@@ -153,3 +153,60 @@ class TestAdmissionEnforcesFeatures:
         assert report.disposition is AdmissionDisposition.HUMAN_REVIEW
         assert any(f.code == "feature_not_allowed" for f in report.findings)
         audit.close()
+
+
+class TestAManifestGovernsWhatShips:
+    """The manifest bounded only operators that were asked for, never the ones that ship.
+
+    `families.py` is imported by admission and the CLI and by nothing on the built-in
+    registration path, so `allowed_features` was checked for a requested operator and never
+    for a registered one. It drifted: `pure_transform` declared `plan_batches` after that
+    operation was renamed to `plan_batch`, and nothing noticed for a whole session.
+    """
+
+    def test_every_family_declares_its_own_operations(self) -> None:
+        """Otherwise the family is unrequestable, not merely undocumented.
+
+        A request selects its operation by naming it in `features`, and `check_features`
+        rejects a name the manifest does not declare — so a manifest omitting its own
+        operations refuses every request for that family before the operation is read.
+        """
+        from shakespeare.runners import allowlist
+
+        for family in OperatorFamily:
+            undeclared = sorted(set(allowlist(family)) - families.allowed_features(family))
+            assert not undeclared, f"{family} runs {undeclared} but does not declare them"
+
+    def test_a_declared_name_is_either_an_operation_or_a_slot(self) -> None:
+        """Naming something that is neither is how `plan_batches` survived a rename."""
+        from shakespeare.runners import allowlist
+
+        slots = {
+            "char_limit", "depth_limit", "digest", "docx", "email", "fallback_chain",
+            "image_ocr", "include_hidden", "key", "mime_detect", "page_limit", "pdf_ocr",
+            "pdf_text", "stable_sort", "stat", "table", "xlsx",
+        }
+        for family in OperatorFamily:
+            unexplained = sorted(
+                families.allowed_features(family) - set(allowlist(family)) - slots
+            )
+            assert not unexplained, f"{family} declares {unexplained}, neither operation nor slot"
+
+    def test_the_template_offers_every_family(self) -> None:
+        """A family the template cannot render is a family nothing can be admitted into."""
+        import yaml
+
+        copier = yaml.safe_load(
+            (families.TEMPLATE_ROOT / "copier.yml").read_text()
+        )
+        offered = set(copier["operator_family"]["choices"])
+        assert offered == {family.value for family in OperatorFamily}
+
+    def test_a_request_naming_a_real_operation_passes_its_family_check(self) -> None:
+        """The end the drift was breaking: readonly_scan and content_extract were
+        unrequestable, because neither declared any operation a request could name."""
+        from shakespeare.runners import allowlist
+
+        for family in OperatorFamily:
+            operation = sorted(allowlist(family))[0]
+            families.check_features(family, frozenset({operation}))

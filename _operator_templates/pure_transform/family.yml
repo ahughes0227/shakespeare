@@ -1,3 +1,6 @@
 family: pure_transform
 revision: "1.0"
-allowed_features: [freeze_spec, render_template, normalize, collision_resolve, plan_assemble, obligation_check, next_window, plan_batches]
+# Names a request may use. It must contain every vetted operation for the family,
+# because a request selects its operation by naming it here — a manifest that omits
+# its own operations makes the family unrequestable. Configuration slots follow.
+allowed_features: [collision_resolve, freeze_spec, next_window, normalize, obligation_check, plan_assemble, plan_batch, render_template]

@@ -1,3 +1,6 @@
 family: readonly_scan
 revision: "1.0"
-allowed_features: [walk, stat, digest, mime_detect, stable_sort, depth_limit]
+# Names a request may use. It must contain every vetted operation for the family,
+# because a request selects its operation by naming it here — a manifest that omits
+# its own operations makes the family unrequestable. Configuration slots follow.
+allowed_features: [depth_limit, digest, directories, mime_detect, stable_sort, stat, verify_staging, walk]

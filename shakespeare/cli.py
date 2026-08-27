@@ -985,27 +985,59 @@ def measurements_propose(
     services = _services(state_root, planner=_no_model(), agents={})
     proposals: list[tuple[memory.Proposal, str]] = []
 
+    # Keyed on what is declared now. Evidence recorded under an older capability version
+    # or an older pinned prompt describes something else, so it is set aside rather than
+    # silently averaged into a number somebody is about to write down.
+    seen: set[tuple[str, str]] = set()
     for row in services.audit.measured_subjects(MeasurementKind.SCHEDULE_COST):
         capability_id = row["subject"].split("@")[0]
         if subject and capability_id != subject:
             continue
         try:
-            declared = services.capabilities.get(capability_id).cost_per_item
+            capability = services.capabilities.get(capability_id)
         except Exception:
-            declared = None
+            console.print(
+                f"[dim]{row['subject']}: measured, but no capability declares it now.[/dim]"
+            )
+            continue
+        if (capability.ref, row["resolved_model"]) in seen:
+            continue
+        seen.add((capability.ref, row["resolved_model"]))
+        evidence = memory.applicable(
+            [
+                measured
+                for measured in services.audit.measurements(
+                    kind=MeasurementKind.SCHEDULE_COST, resolved_model=row["resolved_model"]
+                )
+                # This capability's own history. Another capability's cost is not
+                # weaker evidence about this one; it is evidence about something else.
+                if measured["subject"].split("@")[0] == capability_id
+            ],
+            subject=capability.ref,
+            prompt_version=capability.prompt_version,
+        )
+        if not evidence.rows:
+            # A hollow panel with no subject and no model reads as a broken command
+            # rather than as an answer. The answer is that the evidence is about
+            # something this capability no longer is.
+            console.print(
+                f"[dim]{capability.ref}: nothing measured under what is declared now "
+                f"({evidence.summary or 'no observations'}).[/dim]"
+                if evidence.set_aside
+                else f"[dim]{capability.ref}: nothing measured yet.[/dim]"
+            )
+            continue
         proposals.append(
             (
-                memory.cost_proposal(
-                    services.audit.measurements(
-                        kind=MeasurementKind.SCHEDULE_COST,
-                        subject=row["subject"],
-                        resolved_model=row["resolved_model"],
-                    ),
-                    incumbent=declared,
-                ),
-                f'cost_per_item in _capabilities/{capability_id}/capability.yml',
+                memory.cost_proposal(evidence.rows, incumbent=capability.cost_per_item),
+                f"cost_per_item in _capabilities/{capability_id}/capability.yml",
             )
         )
+        if evidence.set_aside:
+            console.print(
+                f"[dim]{capability.ref}: set aside {evidence.summary} — "
+                f"a different version or prompt is a different thing to measure.[/dim]"
+            )
 
     if not subject:
         claims = services.audit.measurements(kind=MeasurementKind.CONFIDENCE)
