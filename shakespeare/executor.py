@@ -269,6 +269,23 @@ class Executor:
                         f"argument=source, so this fills {target} from {source}. "
                         f"Write {source}={target}"
                     )
+                elif "." in source:
+                    # A dotted source names an earlier invocation and one of its keys.
+                    # Listing the working values does not help when the mistake was the
+                    # invocation id: a live run guessed `collide.resolutions` at an
+                    # invocation actually called `resolve_collisions`, and was told what
+                    # was bindable without being told what it had just produced.
+                    _, _, wanted = source.partition(".")
+                    offers = [
+                        f"{name}.{key}"
+                        for name, output in prior.items()
+                        for key in (output or {})
+                        if not wanted or key == wanted
+                    ]
+                    detail = (
+                        f"binding {target}={source} names no earlier invocation; "
+                        f"available: {', '.join(sorted(offers)) or 'nothing produced yet'}"
+                    )
                 else:
                     # Runtime plumbing is in the argument mapping but is not the
                     # composition's to bind, so offering it would only invite the next
