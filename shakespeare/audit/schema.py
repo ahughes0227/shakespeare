@@ -283,12 +283,52 @@ reversals = _table(
 )
 
 
+#: What runs actually measured, one row per observation.
+#:
+#: Deliberately observations rather than aggregates: an average cannot be re-derived
+#: under a new weighting and cannot be invalidated when the model behind it changes.
+#: Nothing reads this table during a run — a measured constant reaches a run only by
+#: being promoted into a manifest, so what a run does stays fixed and digested at its
+#: start and `replay` keeps meaning what it means.
+measurements = _table(
+    "measurements",
+    Column("measurement_id", String, primary_key=True),
+    Column("run_id", String, ForeignKey("runs.run_id"), nullable=False),
+    Column("kind", String, nullable=False),  # schedule_cost | confidence
+    Column("subject", String, nullable=False),  # capability ref | field name
+    # Identity, not metadata: a measurement taken under one model says nothing about
+    # another, and mixing them silently is how a promoted constant becomes wrong.
+    Column("resolved_model", String, nullable=False),
+    Column("prompt_version", String, nullable=False),
+    Column("value", Float, nullable=False),
+    Column("weight", Float, nullable=False),
+    Column("count", Integer, nullable=False),
+    Column("outcome", Boolean, nullable=False),
+    Column("bound", String),  # "lower" when value limits the quantity rather than reporting it
+    Column("recorded_at", String, nullable=False),
+)
+
+
 def install_append_only_triggers(connection: Connection) -> None:
     """Reject UPDATE and DELETE on every audit table.
 
     This is what makes the log an audit log rather than a working table.
+
+    Only tables that actually exist are covered. The trigger set is derived from the
+    model list so that it cannot drift from it, but an older migration runs against a
+    database that has not yet grown the newer tables — deriving from the models and
+    ignoring what is present would make every historical migration fail the moment a
+    table is added.
     """
+    present = {
+        name
+        for (name,) in connection.execute(
+            text("SELECT name FROM sqlite_master WHERE type='table'")
+        )
+    }
     for table in metadata.sorted_tables:
+        if table.name not in present:
+            continue
         for action in ("UPDATE", "DELETE"):
             trigger = f"{table.name}_no_{action.lower()}"
             connection.execute(

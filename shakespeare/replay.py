@@ -92,13 +92,26 @@ class JournalPlanner:
                 return str(goal_id)
         return str(available[0])
 
-    def select_capability(self, goal: Any, candidates: list[str]) -> str:
+    def select_capability(
+        self,
+        goal: Any,
+        candidates: list[dict[str, Any]],
+        evidence: dict[str, Any] | None = None,
+    ) -> Any:
+        """Replay the recorded choice, ignoring the evidence the original was shown.
+
+        A replay reproduces decisions rather than re-taking them; consulting the corpus
+        again is exactly how a replay would stop being one.
+        """
+        from .planner import CapabilityChoice
+
+        names = [item["id"] if isinstance(item, dict) else item for item in candidates]
         for item in self.recorded.attempts:
             if item["stage_name"] == goal.id:
                 for capability_id in item["compositions"]:
-                    if capability_id in candidates:
-                        return str(capability_id)
-        return str(candidates[0])
+                    if capability_id in names:
+                        return CapabilityChoice(capability_id=str(capability_id))
+        return CapabilityChoice(capability_id=str(names[0]))
 
     def judge(
         self,

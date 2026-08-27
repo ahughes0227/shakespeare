@@ -1,0 +1,24 @@
+purpose: >
+  Turn documents into stored records, and names into deterministic output from those
+  records. Reading is the only part of this that needs a model.
+lifecycle: >
+  One batch of documents per round: extract, then append a row per item. When the table
+  holds every item, read it back and render every name in one deterministic call.
+contracts: >
+  Rows carry item_id, directory, extension, values and confidences. name.render takes its
+  items from the table, never from a response.
+allowed_configuration: The naming convention and the confidence floor.
+side_effects: >
+  writes rows to the run's own record table under the workspace. It never touches the
+  input or output trees.
+risks: >
+  Misreading a field and storing it confidently; a row keyed to the wrong item, which
+  would attach one document's values to another's name.
+failure_modes: >
+  Unreadable document, a required field absent from the text, a row missing its key, a
+  batch too large for one response.
+resource_limits: Bounded rows per append and a batch sized to one response.
+examples: >
+  Reading sixty invoices into a table over five rounds, then rendering sixty filenames
+  from that table in a single call that involves no model at all.
+provenance: Capability package plus its prompt artifact and the run's audit log.

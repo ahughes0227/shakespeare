@@ -18,7 +18,7 @@ from typing import Any
 from pydantic import ValidationError
 
 from .contracts import ChangeAction, ChangePlan, OperatorFamily, ReversalRecord
-from .operators import extraction, filesystem, mutation, naming, planning, text
+from .operators import extraction, filesystem, mutation, naming, planning, records, text
 
 Operation = Callable[[dict[str, Any], Path], dict[str, Any]]
 
@@ -340,6 +340,20 @@ def _plan_batch(arguments: dict[str, Any], workspace: Path) -> dict[str, Any]:
     )
 
 
+def _record_append(arguments: dict[str, Any], workspace: Path) -> dict[str, Any]:
+    rows = arguments.get("rows") or arguments.get("records") or ()
+    return records.append(
+        workspace=workspace,
+        table=str(arguments.get("table") or "items"),
+        rows=tuple(rows),
+        key=str(arguments.get("key") or "item_id"),
+    )
+
+
+def _record_read(arguments: dict[str, Any], workspace: Path) -> dict[str, Any]:
+    return records.read(workspace=workspace, table=str(arguments.get("table") or "items"))
+
+
 def _obligation_check(arguments: dict[str, Any], workspace: Path) -> dict[str, Any]:
     result = planning.run_check(
         arguments["obligation_id"], arguments["check"], arguments.get("payload", {})
@@ -414,6 +428,10 @@ _ALLOWLISTS: dict[OperatorFamily, dict[str, Operation]] = {
         "plan_assemble": _plan_assemble,
         "obligation_check": _obligation_check,
     },
+    OperatorFamily.RECORD_STORE: {
+        "record_append": _record_append,
+        "record_read": _record_read,
+    },
     OperatorFamily.FILESYSTEM_MUTATION: {
         "stage_write": _stage_write,
         "atomic_move": _atomic_move,
@@ -438,6 +456,10 @@ def content_extract(arguments: dict[str, Any], workspace: Path) -> dict[str, Any
 
 def pure_transform(arguments: dict[str, Any], workspace: Path) -> dict[str, Any]:
     return _dispatch(arguments, workspace, _ALLOWLISTS[OperatorFamily.PURE_TRANSFORM])
+
+
+def record_store(arguments: dict[str, Any], workspace: Path) -> dict[str, Any]:
+    return _dispatch(arguments, workspace, _ALLOWLISTS[OperatorFamily.RECORD_STORE])
 
 
 def filesystem_mutation(arguments: dict[str, Any], workspace: Path) -> dict[str, Any]:

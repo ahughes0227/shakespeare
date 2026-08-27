@@ -1,0 +1,221 @@
+"""Choosing the shape of the work, and saying when no shape fits.
+
+ADR 0004. For seven live runs the system computed the number that proved the model was in
+the data path — items times cost against the response ceiling — used it privately to size
+a batch, and showed it to nobody. The planner learned the corpus size only after routing
+became irrevocable, and no return type could carry an objection.
+
+These tests are built to force that conclusion rather than wait for it: a corpus sized so
+that answering in the response is arithmetically impossible, and a run where nothing fits
+at all.
+"""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+from shakespeare.artifacts import ArtifactStore
+from shakespeare.capabilities import CapabilityRegistry, CapabilityRunner
+from shakespeare.capabilities.runner import Organization
+from shakespeare.contracts import BudgetEnvelope, Invocation, RouteDecision
+from shakespeare.executor import Budget, Executor
+from shakespeare.operators.builtin import build_registry
+from shakespeare.planner import ScriptedGoalPlanner
+from shakespeare.verifier import Verifier
+
+from harness import build, org, seed_invoices, values_for
+
+CEILING = 16384
+
+
+def corpus(count: int) -> list[dict[str, str]]:
+    return [{"item_id": f"i{n}", "relpath": f"q/{n}.pdf"} for n in range(count)]
+
+
+class TestTheEvidenceIsDecisive:
+    """The facts reach the choice, and they are enough to settle it by arithmetic."""
+
+    def test_the_planner_is_told_what_there_is_to_do(self, tmp_path: Path) -> None:
+        planner = ScriptedGoalPlanner(route=RouteDecision(workflow_id="rename_files"))
+        runtime, request, audit, _ = build(tmp_path, planner=planner)
+        runtime.run(request, commit=False)
+        assert planner.seen_evidence, "a choice was made, so evidence was shown"
+        assert "items" in planner.seen_evidence["items"]
+        assert planner.seen_evidence["response_ceiling_tokens"] == CEILING
+        audit.close()
+
+    def test_the_candidates_declare_what_settles_it(self) -> None:
+        registry = CapabilityRegistry()
+        answering = registry.get("resolve")
+        durable = registry.get("transcribe")
+        assert answering.cost_per_item and durable.cost_per_item
+        assert "record.append" not in answering.catalog
+        assert "record.append" in durable.catalog
+
+    def test_sixty_documents_do_not_fit_one_response(self) -> None:
+        """The number that was computed and thrown away for seven runs."""
+        cost = CapabilityRegistry().get("resolve").cost_per_item
+        assert cost is not None
+        assert 60 * cost > CEILING, "answering in the response is arithmetically impossible"
+
+    def test_a_handful_of_documents_do_fit(self) -> None:
+        """Which is why the in-response capability is kept rather than replaced."""
+        cost = CapabilityRegistry().get("resolve").cost_per_item
+        assert cost is not None
+        assert 5 * cost < CEILING
+
+
+class TestAnImpedimentEndsTheRun:
+    def test_a_planner_that_finds_no_workable_shape_escalates(self, tmp_path: Path) -> None:
+        planner = ScriptedGoalPlanner(
+            route=RouteDecision(workflow_id="rename_files"),
+            impediments={"named": "no candidate can carry 60 documents in one response"},
+        )
+        runtime, request, audit, _ = build(tmp_path, planner=planner)
+        result = runtime.run(request, commit=False)
+        assert result.outcome == "escalated", "not aborted: no retry would have helped"
+        assert "no candidate can carry" in result.detail
+        audit.close()
+
+    def test_a_capability_can_raise_one_too(self, tmp_path: Path) -> None:
+        """The capability sees the mechanism; the planner sees the shape. Either may object."""
+        from shakespeare.agent import FakeCapabilityAgent
+
+        agents = {"*": FakeCapabilityAgent()}
+        agents["*"].queue(
+            "survey",
+            org(intent="cannot", publishes=None).model_copy(
+                update={"impediment": "these are images, and nothing here reads images"}
+            ),
+        )
+        runtime, request, audit, _ = build(tmp_path, agents=agents)
+        result = runtime.run(request, commit=False)
+        assert result.outcome == "escalated"
+        assert "nothing here reads images" in result.detail
+        audit.close()
+
+    def test_an_escalation_is_not_an_abort_in_the_audit_log(self, tmp_path: Path) -> None:
+        """A person reads one of these; the other might have been a bad roll."""
+        planner = ScriptedGoalPlanner(
+            route=RouteDecision(workflow_id="rename_files"),
+            impediments={"named": "wrong shape"},
+        )
+        runtime, request, audit, _ = build(tmp_path, planner=planner)
+        result = runtime.run(request, commit=False)
+        from sqlalchemy import text
+
+        with audit.engine.connect() as connection:
+            recorded = list(
+                connection.execute(text("select outcome, error_code from run_outcomes"))
+            )
+        assert recorded == [("escalated", "impediment")]
+        assert result.error_code == "impediment"
+        audit.close()
+
+    def test_nothing_is_committed_when_a_run_escalates(self, tmp_path: Path) -> None:
+        planner = ScriptedGoalPlanner(
+            route=RouteDecision(workflow_id="rename_files"),
+            impediments={"named": "wrong shape"},
+        )
+        runtime, request, audit, _ = build(tmp_path, planner=planner)
+        runtime.run(request, commit=True)
+        assert not Path(request.output_root).exists()
+        audit.close()
+
+
+class TestTheDurableShapeWorks:
+    """Reading fills a table; naming reads it. The model never sees a filename."""
+
+    def _runner(self, tmp_path: Path, agent):
+        operators = build_registry()
+        return CapabilityRunner(
+            executor=Executor(operators, Verifier(operators)),
+            agents={"*": agent},
+            artifacts=ArtifactStore(root=tmp_path / "artifacts", run_id="r"),
+            capacity=CEILING,
+        )
+
+    def test_names_are_rendered_from_the_table_in_one_call(self, tmp_path: Path) -> None:
+        source = seed_invoices(tmp_path / "in")
+        rows = values_for(source)
+        spec = _frozen()
+
+        class Transcriber:
+            """Stores what it reads, then renders everything from storage."""
+
+            def __init__(self) -> None:
+                self.renders = 0
+
+            def organize(self, *, capability, request, artifacts, context, prior, catalog_summary):
+                batch = context.get("items") or []
+                ids = {item["item_id"] for item in batch}
+                store = (
+                    Invocation(
+                        invocation_id="w",
+                        operator="record.append",
+                        parameters={"rows": [r for r in rows if r["item_id"] in ids]},
+                    ),
+                    Invocation(invocation_id="r", operator="record.read", parameters={}),
+                )
+                if context.get("batch_remaining"):
+                    return (
+                        Organization(
+                            invocations=store,
+                            intent="store this batch",
+                            sufficient=True,
+                            publishes=None,
+                        ),
+                        None,
+                    )
+                # The last batch renders every name in the run, from the table.
+                self.renders += 1
+                return (
+                    Organization(
+                        invocations=(
+                            *store,
+                            Invocation(
+                                invocation_id="n",
+                                operator="name.render",
+                                parameters={"spec": spec},
+                                bindings={"items": "r.records"},
+                            ),
+                        ),
+                        intent="store the last batch and render every name from the table",
+                        sufficient=True,
+                        publishes="ResolvedNames",
+                    ),
+                    None,
+                )
+
+        agent = Transcriber()
+        capability = CapabilityRegistry().get("transcribe")
+        outcome = self._runner(tmp_path, agent).run(
+            capability=capability,
+            request="read them into records and name them",
+            context={"items": [{"item_id": r["item_id"]} for r in rows], "root": str(source)},
+            budget=Budget(envelope=BudgetEnvelope(operator_calls="200"), items=len(rows)),
+            workspace=tmp_path / "work",
+        )
+        assert len(outcome.context["candidates"]) == len(rows)
+        assert agent.renders == 1, "every name in the run came from one deterministic call"
+
+    def test_the_table_outlives_the_response_that_filled_it(self, tmp_path: Path) -> None:
+        """A batch that fails costs itself, not the run's progress."""
+        from shakespeare.operators import records
+
+        workspace = tmp_path / "work"
+        records.append(
+            workspace=workspace,
+            table="items",
+            rows=({"item_id": "a", "values": {"vendor": "ACME"}},),
+        )
+        assert records.read(workspace=workspace, table="items")["stored"] == 1
+
+
+def _frozen() -> dict:
+    """The convention as the runtime freezes it, not as the harness writes it."""
+    from shakespeare.runners import pure_transform
+
+    from harness import SPEC
+
+    return pure_transform({"operation": "freeze_spec", "spec": SPEC}, Path("."))["spec"]

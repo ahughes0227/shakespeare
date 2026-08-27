@@ -78,6 +78,7 @@ uv run shakespeare apply --plan plan.json -i ./in -o ./out
 uv run shakespeare requests list | review <id> | approve <id> | deny <id>
 uv run shakespeare prompts list | promote <sig> --candidate 1.1.0 --score 0.9
 uv run shakespeare canary list | record <name> | run
+uv run shakespeare measurements list | propose | recovery
 ```
 
 `replay` swaps only the planner and the domain agents for journal-backed ones — the same
@@ -91,6 +92,15 @@ or deleted since planning stops the commit rather than being renamed on stale in
 `canary` re-runs golden cases through the real model on purpose: the point is to notice
 when the same prompt over the same files stops producing the same answer — a promoted
 prompt, a new operator version, or a provider changing silently behind an alias.
+
+`measurements` is where a declared constant goes to be replaced by a measured one. Every
+run already measures what a batch costs and every run used to throw it away, so the
+estimate each one starts from is whatever number a person typed into a manifest. Runs now
+record those observations; `propose` says which constant the accumulated evidence supports
+and prints the file to write it into. Nothing reads the ledger during a run — a measured
+constant reaches a run only as a manifest edit, which is what keeps a run determined by
+its journal and keeps `replay` a statement about what was recorded rather than about what
+a database happened to hold that day.
 
 ## Extending it
 

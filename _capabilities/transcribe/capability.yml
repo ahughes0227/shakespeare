@@ -1,0 +1,13 @@
+id: transcribe
+version: "1.0.0"
+standing_goal: Read each document into a stored record, then render names from the table.
+catalog: [doc.extract, record.append, record.read, name.render]
+config_groups: [naming, confidence]
+produces: [ResolvedNames]
+# Rounds are for correcting a mistake. A batch that fails costs only itself, because what
+# earlier batches read is already in the table.
+max_rounds: 6
+# Measured, not guessed: what one document costs to read into a row.
+cost_per_item: 300
+divides: items
+prompt_version: "1.1.0"

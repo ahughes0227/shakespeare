@@ -143,6 +143,26 @@ BUILTIN: dict[str, tuple[OperatorSpec, str]] = {
         ),
         (
             _spec(
+                "record.append",
+                OperatorFamily.RECORD_STORE,
+                "Store one row per item in the run's record table, replacing any row "
+                "already held for that item.",
+                operation="record_append",
+            ),
+            "record_append",
+        ),
+        (
+            _spec(
+                "record.read",
+                OperatorFamily.RECORD_STORE,
+                "Read back every stored row, so later work runs from the table rather "
+                "than from a model response.",
+                operation="record_read",
+            ),
+            "record_read",
+        ),
+        (
+            _spec(
                 "plan.assemble",
                 OperatorFamily.PURE_TRANSFORM,
                 "Assemble a ChangePlan and enforce balanced accounting.",

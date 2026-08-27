@@ -76,8 +76,10 @@ class TestPlannerPath:
     ) -> None:
         gateway.queue(CapabilityChoice, {"capability_id": "acquire", "rationale": "reads files"})
         _, graph = _graph()
-        chosen = planner.select_capability(graph.goal("readable"), ["acquire"])
-        assert chosen == "acquire"
+        chosen = planner.select_capability(
+            graph.goal("readable"), [{"id": "acquire", "standing_goal": "read files"}]
+        )
+        assert chosen.capability_id == "acquire"
 
     def test_the_judge_is_given_the_rubric_not_the_documents(
         self, gateway: FakeGateway, planner: ModelGoalPlanner

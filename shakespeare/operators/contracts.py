@@ -119,6 +119,18 @@ class BatchPlanInput(OperatorInput):
     )
 
 
+class RecordAppendInput(OperatorInput):
+    rows: list[dict[str, Any]] = Field(
+        description="One row per item. Each must carry the key column."
+    )
+    table: str = Field(default="items", description="Which table to write.")
+    key: str = Field(default="item_id", description="Column identifying an item.")
+
+
+class RecordReadInput(OperatorInput):
+    table: str = Field(default="items", description="Which table to read.")
+
+
 class ObligationCheckInput(OperatorInput):
     obligation_id: str
     check: str
@@ -138,6 +150,8 @@ INPUT_MODELS: dict[str, type[OperatorInput]] = {
     "name.collide": CollisionInput,
     "batch.window": WindowInput,
     "schedule.plan": BatchPlanInput,
+    "record.append": RecordAppendInput,
+    "record.read": RecordReadInput,
     "plan.assemble": PlanAssembleInput,
     "check.assert": ObligationCheckInput,
 }
@@ -165,6 +179,8 @@ OUTPUT_KEYS: dict[str, list[str]] = {
         "estimate",
     ],
     "plan.assemble": ["plan", "entries", "scanned"],
+    "record.append": ["table", "stored", "added", "replaced", "path"],
+    "record.read": ["records", "stored", "table"],
     "check.assert": ["obligation_id", "passed", "detail"],
 }
 

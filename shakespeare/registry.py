@@ -20,8 +20,17 @@ FAMILY_RUNNERS: dict[OperatorFamily, str] = {
     OperatorFamily.READONLY_SCAN: "shakespeare.runners:readonly_scan",
     OperatorFamily.CONTENT_EXTRACT: "shakespeare.runners:content_extract",
     OperatorFamily.PURE_TRANSFORM: "shakespeare.runners:pure_transform",
+    OperatorFamily.RECORD_STORE: "shakespeare.runners:record_store",
     OperatorFamily.FILESYSTEM_MUTATION: "shakespeare.runners:filesystem_mutation",
 }
+
+#: Families whose components may declare writes. Their containment differs and so does
+#: their risk: a filesystem mutation touches the user's trees and is reserved to the
+#: runtime, while a record store may only write the run's own workspace and is therefore
+#: something a capability can be trusted with.
+WRITING_FAMILIES: frozenset[OperatorFamily] = frozenset(
+    {OperatorFamily.FILESYSTEM_MUTATION, OperatorFamily.RECORD_STORE}
+)
 
 
 class RegistryError(RuntimeError):
@@ -76,14 +85,14 @@ class OperatorRegistry:
                 f" expected {expected}, got {spec.entrypoint}"
             )
 
-        if spec.family is not OperatorFamily.FILESYSTEM_MUTATION and spec.side_effects:
-            # Only the mutation family may declare write side effects; otherwise the
+        if spec.family not in WRITING_FAMILIES and spec.side_effects:
+            # Only a writing family may declare write side effects; otherwise the
             # write-containment guarantee would depend on an author's discipline.
             writes = [item for item in spec.side_effects if item.startswith("write")]
             if writes:
                 raise RegistryError(
-                    f"{spec.name} declares write side effects but is not a"
-                    f" filesystem_mutation operator: {writes}"
+                    f"{spec.name} declares write side effects but is not in a writing"
+                    f" family ({', '.join(sorted(WRITING_FAMILIES))}): {writes}"
                 )
 
         input_schema = input_model.model_json_schema() if input_model else {}

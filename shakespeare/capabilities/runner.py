@@ -86,6 +86,10 @@ class Organization(Contract):
     #: A component this capability lacked. Evaluated after the round runs, so an admitted
     #: component becomes usable on the next round rather than mid-organization.
     ask: OperatorAsk | None = None
+    #: What is in the way of doing this at all. Distinct from failing: a failure is an
+    #: attempt that did not work, and an impediment is a statement that no attempt of this
+    #: shape will. It ends the run for a person to read rather than feeding a retry.
+    impediment: str | None = None
 
 
 class CapabilityAgent(Protocol):
@@ -139,10 +143,14 @@ class BatchCost:
     completion_tokens: int = 0
     truncated: bool = False
     finished: bool = False
+    #: Which model actually answered. Kept because a cost measured under one model is not
+    #: evidence about another, and a provider can change what an alias resolves to.
+    resolved_model: str = ""
 
     def observe(self, usage: ModelUsage | None) -> None:
         if usage is not None:
             self.completion_tokens += usage.completion_tokens
+            self.resolved_model = usage.resolved_model or usage.requested_model
 
 
 @dataclass(frozen=True)
@@ -152,10 +160,16 @@ class CapabilityOutcome:
     artifacts: tuple[Artifact, ...]
     context: dict[str, Any]
     exhausted: bool = False
+    #: Raised by a round that judged the work impossible as framed, not merely failed.
+    impediment: str | None = None
     #: The runtime's own scheduling calls, so the journal records why a capability was
     #: asked what it was asked. Without them the audit log shows the batches but not the
     #: decision that produced them.
     scheduling: tuple[tuple[Composition, tuple[InvocationResult, ...]], ...] = ()
+    #: What each batch actually cost. The same rows that size the next batch within this
+    #: run, kept so the run boundary stops discarding them: the estimate every run starts
+    #: from is declared by hand, and this is the evidence that would replace it.
+    observations: tuple[dict[str, Any], ...] = ()
 
     @property
     def sufficient(self) -> bool:
@@ -276,15 +290,26 @@ class CapabilityRunner:
         produced: list[Artifact] = []
 
         scheduling: list[tuple[Composition, tuple[InvocationResult, ...]]] = []
+        measured: list[dict[str, Any]] = []
 
         def outcome(*, exhausted: bool) -> CapabilityOutcome:
+            raised = next(
+                (
+                    round_.organization.impediment
+                    for round_ in rounds
+                    if round_.organization.impediment
+                ),
+                None,
+            )
             return CapabilityOutcome(
                 capability=capability.id,
                 rounds=tuple(rounds),
                 artifacts=tuple(produced),
                 context=working,
                 exhausted=exhausted,
+                impediment=raised,
                 scheduling=tuple(scheduling),
+                observations=tuple(measured),
             )
 
         divisible = working.get(capability.divides)
@@ -303,7 +328,9 @@ class CapabilityRunner:
         # Work already carried in from an earlier attempt is not work. A live run kept
         # restarting at sixty items, once throwing away fifty-nine it had just resolved.
         remaining: list[Any] = _outstanding(whole, working, progress)
-        observations: list[dict[str, Any]] = []
+        # The same rows the scheduler sizes from and the runtime records afterwards: one
+        # list, so what is remembered is exactly what was acted on.
+        observations: list[dict[str, Any]] = measured
         # Seeded from what is already there. Starting empty and then assigning back made
         # each batch replace every earlier attempt's rows, so a goal that had resolved
         # forty-six items went back to fourteen and its next attempt had more to do than
@@ -362,6 +389,7 @@ class CapabilityRunner:
                     "completion_tokens": spent.completion_tokens,
                     "truncated": spent.truncated,
                     "failed": not done,
+                    "resolved_model": spent.resolved_model,
                 }
             )
             if done:
@@ -535,6 +563,8 @@ class CapabilityRunner:
                     )
                 )
 
+            if organization.impediment:
+                return cost
             if organization.sufficient and completed.succeeded:
                 cost.finished = True
                 return cost
@@ -602,7 +632,15 @@ def _catalog_summary(capability: CapabilitySpec, config_root: str | None) -> dic
 _VERBATIM: frozenset[str] = frozenset({"previous_attempt"})
 
 #: Output keys whose entries carry an item_id, and therefore count as work completed.
-_PROGRESS_KEYS: tuple[str, ...] = ("candidates", "unrendered", "extractions", "results")
+_PROGRESS_KEYS: tuple[str, ...] = (
+    "candidates",
+    "unrendered",
+    "extractions",
+    "results",
+    # A stored row is the work, and it is the only kind of progress that outlives the
+    # response that reported it.
+    "records",
+)
 
 
 def _accumulate(

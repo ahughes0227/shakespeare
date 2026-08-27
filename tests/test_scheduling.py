@@ -373,7 +373,7 @@ class TestContainment:
             for capability_id in registry.ids()
             if registry.get(capability_id).cost_per_item is not None
         }
-        assert divisible == {"acquire", "resolve"}
+        assert divisible == {"acquire", "resolve", "transcribe"}
 
 
 class TestBatchingIsInvisibleDownstream:

@@ -151,7 +151,15 @@ class Controller:
                     f"{self.max_goal_attempts} attempts",
                 )
 
-            capability = self._choose_capability(goal)
+            capability, impediment = self._choose_capability(goal)
+            if capability is None:
+                # Not a failure to be retried: a statement that no attempt of this shape
+                # will work. It ends the run for a person to read.
+                return (
+                    tuple(attempts),
+                    frozenset(satisfied),
+                    f"impediment at goal {goal.id!r}: {impediment}",
+                )
             goal_span = (
                 self.tracer.span(
                     f"goal.{goal.id}",
@@ -204,6 +212,12 @@ class Controller:
                     gate=result,
                 )
             )
+            if outcome.impediment:
+                return (
+                    tuple(attempts),
+                    frozenset(satisfied),
+                    f"impediment at goal {goal.id!r}: {outcome.impediment}",
+                )
             if result.satisfied:
                 satisfied.add(goal.id)
                 if self.on_goal_satisfied is not None:
@@ -246,7 +260,14 @@ class Controller:
         chosen = self.planner.select_goal(open_goals, self.artifacts.describe())
         return graph.goal(chosen)
 
-    def _choose_capability(self, goal: Goal) -> CapabilitySpec:
+    def _choose_capability(self, goal: Goal) -> tuple[CapabilitySpec | None, str | None]:
+        """Which capability answers this goal — decided from the corpus, not from names.
+
+        The facts that decide it are the ones the scheduler was computing privately: how
+        much there is to do, what one item costs, and what a single response can hold.
+        Handing them over is the difference between a planner that picks a name and one
+        that picks a shape.
+        """
         candidates = [
             self.capabilities.get(name)
             for name in goal.capabilities
@@ -258,12 +279,39 @@ class Controller:
                 ErrorCode.COMPOSITION_INVALID,
             )
         if len(candidates) == 1:
-            return candidates[0]
-        chosen = self.planner.select_capability(goal, [spec.id for spec in candidates])
+            return candidates[0], None
+        choice = self.planner.select_capability(
+            goal,
+            [
+                {
+                    "id": spec.id,
+                    "standing_goal": spec.standing_goal,
+                    "cost_per_item": spec.cost_per_item,
+                    "durable": bool(spec.catalog & _DURABLE),
+                }
+                for spec in candidates
+            ],
+            self._corpus_evidence(candidates),
+        )
+        if getattr(choice, "impediment", None):
+            return None, choice.impediment
         for spec in candidates:
-            if spec.id == chosen:
-                return spec
-        return candidates[0]
+            if spec.id == getattr(choice, "capability_id", choice):
+                return spec, None
+        return candidates[0], None
+
+    def _corpus_evidence(self, candidates: list[CapabilitySpec]) -> dict[str, Any]:
+        """What there is to do, and what one response can hold."""
+        divides = {spec.divides for spec in candidates}
+        counts = {
+            key: len(value)
+            for key in sorted(divides)
+            if isinstance(value := self.context.get(key), list)
+        }
+        return {
+            "items": counts,
+            "response_ceiling_tokens": getattr(self.runner, "capacity", None),
+        }
 
 
 def commit_if_verified(
@@ -324,6 +372,12 @@ __all__ = [
     "new_run_id",
     "started_at",
 ]
+
+
+#: Components that put a per-item result somewhere it survives the response reporting it.
+#: A capability holding one can be told apart from one that carries its results in a
+#: model's answer, which is the distinction the choice actually turns on.
+_DURABLE: frozenset[str] = frozenset({"record.append"})
 
 
 def _achievement(context: dict[str, Any], result: Any) -> tuple[Any, ...]:

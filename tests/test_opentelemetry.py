@@ -233,13 +233,15 @@ class TestDiagnosis:
         from shakespeare.telemetry import Tracer
 
         memory, exporter = collected
-        from shakespeare.planner import GoalChoice, Judgment
+        from shakespeare.planner import CapabilityChoice, GoalChoice, Judgment
 
         judgment = {"satisfied": True, "rationale": "sufficient"}
         gateway = (
             FakeGateway()
             .queue(RouteDecision, {"workflow_id": "rename_files", "supported": True})
             .queue(GoalChoice, {"goal_id": "readable"})
+            # 'named' now offers a real choice of shape, so the planner is asked for one.
+            .queue(CapabilityChoice, {"capability_id": "resolve", "rationale": "it fits"})
             .queue(Judgment, judgment, judgment, judgment)
         )
         runtime, request, audit, _ = build(tmp_path)

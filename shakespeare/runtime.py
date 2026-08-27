@@ -20,9 +20,12 @@ from .artifacts import ArtifactStore
 from .audit import AuditStore
 from .capabilities import CapabilityRegistry, CapabilityRunner
 from .contracts import (
+    Bound,
     BudgetEnvelope,
     ChangePlan,
     ErrorCode,
+    Measurement,
+    MeasurementKind,
     RequestContract,
     content_digest,
 )
@@ -225,19 +228,26 @@ class Runtime:
             )
 
         self._journal(run_id, workflow, attempts)
+        self._remember(run_id, attempts)
 
         if failure is not None:
             mutation.discard(staging)
+            # An impediment is not an abort. Aborting says the attempts did not get there;
+            # escalating says no attempt of this shape would, and the difference decides
+            # whether a person needs to look at it or a retry might have worked.
+            raised = failure.startswith("impediment")
+            outcome = "escalated" if raised else "aborted"
+            code = ErrorCode.IMPEDIMENT if raised else ErrorCode.OBLIGATION_FAILED
             self.audit.record_run_outcome(
-                run_id=run_id, outcome="aborted", error_code=str(ErrorCode.OBLIGATION_FAILED)
+                run_id=run_id, outcome=outcome, error_code=str(code)
             )
             return RunResult(
                 run_id=run_id,
                 workflow_id=workflow.spec.id,
-                outcome="aborted",
+                outcome=outcome,
                 attempts=attempts,
                 satisfied=satisfied,
-                error_code=ErrorCode.OBLIGATION_FAILED,
+                error_code=code,
                 detail=failure,
             )
 
@@ -488,6 +498,48 @@ class Runtime:
                 ),
                 error_code=None if attempt.gate.satisfied else str(ErrorCode.OBLIGATION_FAILED),
             )
+
+    def _remember(self, run_id: str, attempts: tuple[GoalAttempt, ...]) -> None:
+        """Record what this run measured about its own cost.
+
+        Every run has always measured this and every run has always thrown it away, so the
+        estimate each one starts from is the constant somebody typed into a manifest. The
+        rows go to the ledger and nowhere else: nothing reads them during a run, and a
+        measured constant reaches a run only by being written into the manifest that
+        declares it. That is what keeps what a run does fixed and digested at its start.
+
+        Recorded after the work, never during it, so a measurement is only ever a
+        statement about something that already happened.
+        """
+        measurements: list[Measurement] = []
+        for attempt in attempts:
+            capability = self.capabilities.get(attempt.capability)
+            for observation in attempt.outcome.observations:
+                model = str(observation.get("resolved_model") or "")
+                spent = int(observation.get("completion_tokens") or 0)
+                weight = float(observation.get("weight") or 0)
+                count = int(observation.get("items") or 0)
+                # No model, no spend, or no material means nothing was measured. A fake
+                # agent reports no usage, and recording its batches as costing zero would
+                # put the offline suite's arithmetic into the evidence for a live one.
+                if not model or spent <= 0 or weight <= 0 or count <= 0:
+                    continue
+                measurements.append(
+                    Measurement(
+                        kind=MeasurementKind.SCHEDULE_COST,
+                        subject=capability.ref,
+                        resolved_model=model,
+                        prompt_version=capability.prompt_version,
+                        value=float(spent),
+                        weight=weight,
+                        count=count,
+                        outcome=not observation.get("failed"),
+                        # A batch that was cut off never reported what it would have
+                        # cost; it proved the cost is at least what fitted.
+                        bound=Bound.LOWER if observation.get("truncated") else None,
+                    )
+                )
+        self.audit.record_measurements(run_id=run_id, measurements=measurements)
 
     def _record_usage(
         self, run_id: str, role: str, usage: Any, *, prompt_version: str | None = None

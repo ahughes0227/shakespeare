@@ -1,0 +1,25 @@
+purpose: >
+  Persist one row per item, and read the table back, so that what a model reads survives
+  outside the response that reported it.
+lifecycle: >
+  Append is idempotent by key: a row replaces any row already held for the same item, so a
+  document read twice leaves one record and a corrected reading supersedes the one it
+  corrects. Read returns every stored row in key order.
+contracts: >
+  Typed row models with an explicit key column; the table name is configuration and is
+  refused rather than sanitised if it contains a separator or a parent reference.
+allowed_configuration: Table name and key column, both bounded identifiers.
+side_effects: >
+  writes the run's own record store under the workspace, and nothing else. Never an input
+  tree, never an output tree, never a path supplied by an agent.
+risks: >
+  Unbounded table growth; a key column that does not identify an item, which would let one
+  row silently replace another.
+failure_modes: >
+  Missing key column, unwritable workspace, malformed table name, schema conflict between
+  a stored table and the rows being appended.
+resource_limits: Bounded row count and column count per append, and a short wall-clock timeout.
+examples: >
+  Storing the four invoice fields a model read from one document, then reading the whole
+  table so filenames can be rendered by deterministic code.
+provenance: Copier-rendered package plus test evidence and admission record.

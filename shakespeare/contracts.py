@@ -80,6 +80,9 @@ class OperatorFamily(StrEnum):
     READONLY_SCAN = "readonly_scan"
     CONTENT_EXTRACT = "content_extract"
     PURE_TRANSFORM = "pure_transform"
+    #: Writes, but only ever the run's own record store — never an input or output tree.
+    #: Narrower containment than a filesystem mutation, and a different risk for it.
+    RECORD_STORE = "record_store"
     FILESYSTEM_MUTATION = "filesystem_mutation"
 
 
@@ -106,6 +109,9 @@ class ErrorCode(StrEnum):
     COMMIT_VERIFICATION_FAILED = "commit_verification_failed"
     #: An invocation the composition never got to, because an earlier one failed.
     NOT_REACHED = "not_reached"
+    #: The work cannot be done as framed. Not a failed attempt — a statement that no
+    #: attempt of this shape will work, ending the run for a person to read.
+    IMPEDIMENT = "impediment"
 
 
 class ChangeAction(StrEnum):
@@ -151,6 +157,31 @@ class DecidedBy(StrEnum):
     PLANNER = "planner"
     HUMAN = "human"
     AUTO = "auto"
+
+
+class MeasurementKind(StrEnum):
+    """What a recorded measurement is about.
+
+    Each kind names a number the system currently declares rather than measures, and the
+    evidence that would replace it.
+    """
+
+    #: Output tokens one batch of material actually cost. Evidence for `cost_per_item`.
+    SCHEDULE_COST = "schedule_cost"
+    #: A confidence a model claimed, against whether the value beside it was right.
+    #: Evidence for the configured `confidence.floor`.
+    CONFIDENCE = "confidence"
+
+
+class Bound(StrEnum):
+    """Whether a measured value is the quantity itself or only a limit on it.
+
+    A batch cut off at the output ceiling never reported what it would have cost; it
+    proved the cost is at least what fitted. Recording that distinction is the difference
+    between evidence and a number that merely happens to be small.
+    """
+
+    LOWER = "lower"
 
 
 # --------------------------------------------------------------------------------------
@@ -730,6 +761,49 @@ class PromotionDecision(Contract):
     decided_by: DecidedBy
     choice: AdmissionChoice
     rationale: str = ""
+
+
+# --------------------------------------------------------------------------------------
+# Measurements
+# --------------------------------------------------------------------------------------
+
+
+class Measurement(Contract):
+    """One thing a run observed, recorded as observed.
+
+    A fact, never a conclusion: the estimate a scheduler starts from is *derived* from
+    these rows, so changing how it is derived does not require having recorded the right
+    conclusion at the time. Rows are also the only thing that can be invalidated — an
+    aggregate cannot be un-averaged once the model behind it changes.
+
+    `resolved_model` and `prompt_version` are identity rather than metadata. A
+    measurement taken under one model says nothing about another, which is the same
+    reason `canary` exists.
+    """
+
+    kind: MeasurementKind
+    #: What was measured: a capability ref for a cost, a field name for a confidence.
+    subject: str = Field(min_length=1)
+    resolved_model: str = Field(min_length=1)
+    prompt_version: str = ""
+    #: The quantity observed — tokens spent, or the confidence claimed.
+    value: float = Field(ge=0)
+    #: How much material `value` covers. Cost is per unit of material, never per item: a
+    #: one-line receipt and a forty-line statement are both one item.
+    weight: float = Field(default=1.0, gt=0)
+    #: How many items that material was. Kept because the rate per unit of material is
+    #: the quantity that survives a change of corpus, while `cost_per_item` is that rate
+    #: declared for an item of average weight — and converting between them needs both.
+    count: int = Field(default=1, ge=1)
+    #: Whether what was claimed held: the batch completed, or the value was right.
+    outcome: bool = True
+    #: Set when `value` limits the quantity rather than reporting it.
+    bound: Bound | None = None
+
+    @property
+    def rate(self) -> float:
+        """Value per unit of material, which is the comparable quantity."""
+        return self.value / self.weight
 
 
 # --------------------------------------------------------------------------------------

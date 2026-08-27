@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Annotated, Any
+from typing import TYPE_CHECKING, Annotated, Any
 from uuid import uuid4
 
 import typer
@@ -34,6 +34,9 @@ from .operators import mutation
 from .planner import FakePlanner, Planner
 from .workflows import WorkflowRegistryError
 
+if TYPE_CHECKING:
+    from .memory import Proposal
+
 app = typer.Typer(
     name="shakespeare",
     help="Staged, transactional, agent-driven file operations.",
@@ -45,11 +48,16 @@ journal_app = typer.Typer(help="Read the immutable audit log.", no_args_is_help=
 requests_app = typer.Typer(help="Review requested operators.", no_args_is_help=True)
 prompts_app = typer.Typer(help="Inspect and promote prompt artifacts.", no_args_is_help=True)
 canary_app = typer.Typer(help="Golden-fixture drift detection.", no_args_is_help=True)
+memory_app = typer.Typer(
+    help="What runs measured, and which declared constant it supports.",
+    no_args_is_help=True,
+)
 app.add_typer(workflows_app, name="workflows")
 app.add_typer(journal_app, name="journal")
 app.add_typer(requests_app, name="requests")
 app.add_typer(prompts_app, name="prompts")
 app.add_typer(canary_app, name="canary")
+app.add_typer(memory_app, name="measurements")
 
 console = Console()
 err = Console(stderr=True)
@@ -227,8 +235,19 @@ def calibrate(
     rows = _claims_of(result)
     if not rows:
         _fail("the run reported no field values, so there is nothing to measure")
-    report = calibration.report(calibration.observe(rows, expected), targets=(precision,))
+    per_field = calibration.observe(rows, expected)
+    report = calibration.report(per_field, targets=(precision,))
     _render_calibration(report, precision)
+
+    # Kept, not just printed. A floor derived from one sitting describes one corpus; the
+    # question of what a claimed confidence is worth has stayed open across two ADRs
+    # precisely because every measurement of it was discarded when the process exited.
+    recorded = _remember_claims(services, result, per_field)
+    if recorded:
+        console.print(
+            f"[dim]Recorded {recorded} claims. "
+            f"`shakespeare measurements propose` reads them alongside earlier runs.[/dim]"
+        )
 
     # A calibration measured over part of a corpus is a calibration of the easy part.
     # Saying so is the difference between a number and a misleading number.
@@ -241,6 +260,32 @@ def calibrate(
     if result.outcome != "planned":
         _report(result)
         raise typer.Exit(code=1)
+
+
+def _remember_claims(
+    services: Services, result: object, per_field: dict[str, list[tuple[float, bool]]]
+) -> int:
+    """Record each claimed confidence against whether the value beside it was right."""
+    from .contracts import Measurement, MeasurementKind
+
+    run_id = getattr(result, "run_id", "")
+    models = services.audit.resolved_models(run_id)
+    if not run_id or not models:
+        # No model identity means no measurement: a claim is evidence about the model
+        # that made it, and a run whose model is unknown cannot contribute to a floor.
+        return 0
+    measurements = [
+        Measurement(
+            kind=MeasurementKind.CONFIDENCE,
+            subject=field,
+            resolved_model=models[0],
+            value=confidence,
+            outcome=correct,
+        )
+        for field, claims in sorted(per_field.items())
+        for confidence, correct in claims
+    ]
+    return services.audit.record_measurements(run_id=run_id, measurements=measurements)
 
 
 def _claims_of(result: object) -> list[dict[str, object]]:
@@ -845,6 +890,198 @@ def prompts_promote(
             f"[dim]Pin it by setting prompt_version: \"{candidate}\" in the stage "
             f"package that uses {signature}.[/dim]"
         )
+
+
+# --------------------------------------------------------------------------------------
+# Measurements
+# --------------------------------------------------------------------------------------
+
+
+@memory_app.command("list")
+def measurements_list(
+    kind: Annotated[
+        str, typer.Option("--kind", help="schedule_cost or confidence.")
+    ] = "schedule_cost",
+    state_root: Annotated[Path | None, typer.Option("--state", hidden=True)] = None,
+) -> None:
+    """What has been measured, and how much of it there is."""
+    from .contracts import MeasurementKind
+
+    try:
+        selected = MeasurementKind(kind)
+    except ValueError:
+        _fail(f"unknown kind {kind!r}; use one of {[str(k) for k in MeasurementKind]}")
+    services = _services(state_root, planner=_no_model(), agents={})
+    rows = services.audit.measured_subjects(selected)
+    if not rows:
+        console.print(
+            f"[yellow]No {kind} measurements recorded yet.[/yellow]\n"
+            f"[dim]Runs record them as they go; a fake-model run measures nothing.[/dim]"
+        )
+        return
+    table = Table(title=f"Measured · {kind}")
+    table.add_column("subject", style="bold")
+    table.add_column("model")
+    table.add_column("observations", justify="right")
+    table.add_column("runs", justify="right")
+    for row in rows:
+        table.add_row(
+            row["subject"], row["resolved_model"], str(row["observations"]), str(row["runs"])
+        )
+    console.print(table)
+
+
+@memory_app.command("propose")
+def measurements_propose(
+    subject: Annotated[
+        str | None,
+        typer.Argument(help="Capability id. Omit to assess every measured capability."),
+    ] = None,
+    precision: Annotated[
+        float,
+        typer.Option(
+            "--precision", min=0.0, max=1.0, help="Accuracy a confidence floor must reach."
+        ),
+    ] = 0.99,
+    state_root: Annotated[Path | None, typer.Option("--state", hidden=True)] = None,
+) -> None:
+    """Say which declared constant the recorded evidence supports.
+
+    Prints a proposal and changes nothing. A measured constant reaches a run by being
+    written into the manifest or config that declares it, so the change is a versioned
+    edit visible in git rather than state accumulating in a database nobody reviews.
+    """
+    from . import memory
+    from .contracts import MeasurementKind
+
+    services = _services(state_root, planner=_no_model(), agents={})
+    proposals: list[tuple[memory.Proposal, str]] = []
+
+    for row in services.audit.measured_subjects(MeasurementKind.SCHEDULE_COST):
+        capability_id = row["subject"].split("@")[0]
+        if subject and capability_id != subject:
+            continue
+        try:
+            declared = services.capabilities.get(capability_id).cost_per_item
+        except Exception:
+            declared = None
+        proposals.append(
+            (
+                memory.cost_proposal(
+                    services.audit.measurements(
+                        kind=MeasurementKind.SCHEDULE_COST,
+                        subject=row["subject"],
+                        resolved_model=row["resolved_model"],
+                    ),
+                    incumbent=declared,
+                ),
+                f'cost_per_item in _capabilities/{capability_id}/capability.yml',
+            )
+        )
+
+    if not subject:
+        claims = services.audit.measurements(kind=MeasurementKind.CONFIDENCE)
+        if claims:
+            for model in sorted({row["resolved_model"] for row in claims}):
+                proposals.append(
+                    (
+                        memory.floor_proposal(
+                            [row for row in claims if row["resolved_model"] == model],
+                            incumbent=_declared_floor(),
+                            precision=precision,
+                        ),
+                        "floor in configs/confidence/*.yaml",
+                    )
+                )
+
+    if not proposals:
+        console.print(
+            "[yellow]Nothing measured yet.[/yellow]\n"
+            "[dim]Cost is recorded by any real run; confidence by `shakespeare calibrate`.[/dim]"
+        )
+        return
+    for proposal, where in proposals:
+        _render_proposal(proposal, where)
+
+
+@memory_app.command("recovery")
+def measurements_recovery(
+    state_root: Annotated[Path | None, typer.Option("--state", hidden=True)] = None,
+) -> None:
+    """How often a goal that failed was worth another attempt.
+
+    Needs no measurement of its own: whether a retry ever recovered is already a fact of
+    the audit log. `max_goal_attempts` is a chosen number, and this is what would replace
+    the choosing.
+    """
+    from . import memory
+
+    services = _services(state_root, planner=_no_model(), agents={})
+    rows = memory.recovery(services.audit.attempts_by_goal())
+    if not rows:
+        console.print("[yellow]No attempts recorded yet.[/yellow]")
+        return
+    table = Table(title="Attempts, and whether a retry was worth making")
+    table.add_column("goal", style="bold")
+    table.add_column("attempts by number")
+    table.add_column("deepest recovery", justify="right")
+    table.add_column("spent past it", justify="right")
+    for row in rows:
+        spread = " ".join(
+            f"{number}:{met}/{reached}"
+            for number, (reached, met) in sorted(row.by_attempt.items())
+        )
+        deepest = row.deepest_recovery
+        table.add_row(
+            row.goal_id,
+            spread,
+            str(deepest) if deepest else "[red]never[/red]",
+            f"[yellow]{row.wasted}[/yellow]" if row.wasted else "0",
+        )
+    console.print(table)
+    console.print(
+        "[dim]met/reached per attempt number. An attempt number that never recovered "
+        "anywhere is budget every run is free to spend.[/dim]"
+    )
+
+
+def _declared_floor() -> float | None:
+    """The floor the default config group declares, or None if it cannot be read."""
+    import yaml
+
+    path = Path(__file__).resolve().parents[1] / "configs" / "confidence" / "balanced.yaml"
+    if not path.is_file():
+        return None
+    try:
+        return float((yaml.safe_load(path.read_text()) or {})["floor"])
+    except Exception:
+        return None
+
+
+def _render_proposal(proposal: Proposal, where: str) -> None:
+    from . import memory
+
+    colour = {
+        memory.Verdict.SUPPORTED: "green",
+        memory.Verdict.REVIEW: "yellow",
+        memory.Verdict.INSUFFICIENT: "dim",
+    }[proposal.verdict]
+    lines = [
+        f"[bold]{proposal.subject}[/bold]  ·  {proposal.resolved_model or 'no model'}",
+        f"declared {proposal.incumbent if proposal.incumbent is not None else '—'}"
+        f"   measured {proposal.candidate if proposal.candidate is not None else '—'}"
+        + (f"   ({proposal.change:.2f}x)" if proposal.change else ""),
+        f"[dim]{proposal.observations} observations across {proposal.runs} runs[/dim]",
+        "",
+        proposal.rationale,
+    ]
+    if proposal.detail:
+        lines.append(
+            "[dim]" + "  ".join(f"{k}={v}" for k, v in proposal.detail.items()) + "[/dim]"
+        )
+    if proposal.verdict is memory.Verdict.SUPPORTED:
+        lines.append(f"\n[dim]Pin it by setting {where}.[/dim]")
+    console.print(Panel("\n".join(lines), border_style=colour, title=str(proposal.verdict)))
 
 
 # --------------------------------------------------------------------------------------

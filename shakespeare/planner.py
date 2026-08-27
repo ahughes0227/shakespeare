@@ -238,8 +238,12 @@ class GoalChoice(Contract):
 
 
 class CapabilityChoice(Contract):
-    capability_id: str
+    capability_id: str = ""
     rationale: str = ""
+    #: Set when no candidate's shape fits the corpus it has been shown. The measurement
+    #: that would justify this was computed inside the scheduler and shown to nobody for
+    #: seven live runs.
+    impediment: str | None = None
 
 
 class Judgment(Contract):
@@ -267,7 +271,7 @@ class ModelGoalPlanner:
     prompts: PromptStore = field(default_factory=PromptStore)
     route_version: str = "1.0.0"
     goal_version: str = "1.0.0"
-    capability_version: str = "1.0.0"
+    capability_version: str = "1.1.0"
     judge_version: str = "1.1.0"
     #: Called with (role, usage, prompt_version). Goal, capability and gate calls return
     #: plain values through the protocol, so without this their cost is spent and never
@@ -299,14 +303,22 @@ class ModelGoalPlanner:
         self._spend("planner.select_goal", usage, self.goal_version)
         return choice.goal_id
 
-    def select_capability(self, goal: Any, candidates: list[str]) -> str:
+    def select_capability(
+        self,
+        goal: Any,
+        candidates: list[dict[str, Any]],
+        evidence: dict[str, Any] | None = None,
+    ) -> CapabilityChoice:
         artifact = self.prompts.load(CAPABILITY_SIGNATURE, self.capability_version)
         messages = render_prompt(
-            artifact, goal=goal.statement, candidates=candidates
+            artifact,
+            goal=goal.statement,
+            candidates=candidates,
+            evidence=evidence or {},
         )
         choice, usage = self.gateway.complete(self.profile, messages, CapabilityChoice)
         self._spend("planner.select_capability", usage, self.capability_version)
-        return choice.capability_id
+        return choice
 
     def judge(
         self,
@@ -336,8 +348,13 @@ class ScriptedGoalPlanner:
     route: RouteDecision | None = None
     goal_order: list[str] = field(default_factory=list)
     capability_choice: dict[str, str] = field(default_factory=dict)
+    #: goal id -> impediment, for driving the escalation path offline.
+    impediments: dict[str, str] = field(default_factory=dict)
     judgments: list[tuple[bool, str]] = field(default_factory=list)
     calls: list[str] = field(default_factory=list)
+    #: The corpus facts the last capability choice was shown, so a test can assert that
+    #: the decision was given something to decide with.
+    seen_evidence: dict[str, Any] = field(default_factory=dict)
 
     def select_workflow(
         self, request: RequestContract, catalog: dict[str, dict[str, str]]
@@ -355,9 +372,20 @@ class ScriptedGoalPlanner:
                 return preferred
         return str(available[0])
 
-    def select_capability(self, goal: Any, candidates: list[str]) -> str:
+    def select_capability(
+        self,
+        goal: Any,
+        candidates: list[dict[str, Any]],
+        evidence: dict[str, Any] | None = None,
+    ) -> CapabilityChoice:
         self.calls.append("select_capability")
-        return self.capability_choice.get(goal.id, candidates[0])
+        self.seen_evidence = evidence or {}
+        names = [item["id"] if isinstance(item, dict) else item for item in candidates]
+        if goal.id in self.impediments:
+            return CapabilityChoice(impediment=self.impediments[goal.id])
+        return CapabilityChoice(
+            capability_id=self.capability_choice.get(goal.id, names[0])
+        )
 
     def judge(
         self,

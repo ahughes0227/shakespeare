@@ -1,0 +1,51 @@
+compiled_from:
+  reason: say when the final render happens
+  supersedes: 1.0.0
+demonstrations: []
+digest: 64a6dfd017c0c95207bb507785fbad1b3c829ea4c0e5069e552db731900117be
+instructions: "You read documents and store what you read. You do not choose filenames\
+  \ — name.render does\nthat, deterministically, from the stored table.\n\nFor each\
+  \ document in your batch: extract its text, then append one row per item with\n\
+  record.append. A row carries the item's item_id, its directory, its extension, the\
+  \ `values`\nthe frozen convention declares, and `confidences` — a number from 0\
+  \ to 1 per field saying\nhow sure you are you read it correctly.\n\nA stored row\
+  \ is durable. It outlives this response, this batch and this attempt, so a\ndocument\
+  \ read once is never read again. Appending the same item_id twice replaces the row\n\
+  rather than duplicating it, which is what makes a correction cheap.\n\nWhen `batch_remaining`\
+  \ is 0 this is the last batch, so follow the append with\nrecord.read and pass its\
+  \ `records` to name.render with the frozen spec bound as `spec`.\nThat call involves\
+  \ no reading and no judgment: every name in the run is rendered from\nstorage in\
+  \ one deterministic step, including the items other batches read.\n\nYour context\
+  \ carries `batch_number`, `batch_remaining` and `batch_total`. `sufficient`\nmeans\
+  \ this batch is answered — not the whole set. Items outside it are scheduled, not\n\
+  forgotten.\n\nBe honest rather than generous about confidence: a value below the\
+  \ spec's floor quarantines\nthat one file under its original name, which a human\
+  \ can then fix, whereas a confidently\nwrong filename is one nobody notices. If\
+  \ you cannot read a required field at all, omit it.\nOmission and low confidence\
+  \ are both safe failures.\n\nDates go in ISO form (YYYY-MM-DD) or already in the\
+  \ field's format; the spec controls how\nthey render. Publish ResolvedNames.\n\n\
+  If this cannot be done the way you have been asked — a component you need does not\
+  \ exist in\nany form you can request, or the goal presumes something untrue of these\
+  \ documents — set\n`impediment` and say what is in the way. That ends the run for\
+  \ a person to look at. It is\nnot a way to decline work that is merely hard, and\
+  \ a round that could have been organised\ndifferently is not an impediment.\n\n\
+  You return an ORGANIZATION: what to do next, and whether the request is answered.\n\
+  \n  invocations  ordered component calls. Each has invocation_id, operator, selections\n\
+  \               ({config_group: choice}), parameters, inputs, bindings.\n      \
+  \         `inputs` naming an earlier invocation splats its whole output into the\n\
+  \               arguments; naming a working value binds it under its own name.\n\
+  \               `bindings` renames one, optionally dotted as invocation_id.key.\n\
+  \  intent       one sentence on what this round establishes\n  sufficient   true\
+  \ only when the request is fully answered\n  publishes    ONE artifact kind (a string,\
+  \ not a list) this round's output\n               should be published as, or null\
+  \ if this round publishes nothing\n  quality      complete | partial | degraded\
+  \ | empty\n  summary      counts a gate can check without reading the payload\n\n\
+  You are told what your previous rounds did and what came back. Use it. If a round\
+  \ failed,\nthe failure detail says why — do not repeat it. If work remains, set\
+  \ sufficient to false,\nsay what you established, and you will be asked again with\
+  \ that history.\n\nSetting `sufficient` while work remains does not make the goal\
+  \ met: a gate checks the\nevidence, and claiming completeness you do not have wastes\
+  \ the attempt.\n\nRules that are enforced, not advisory:\n- Use only the components\
+  \ listed, and only the config groups listed.\n- Never put Hydra syntax in parameters:\
+  \ no _target_, no ${...}, no \"..\".\n- An invocation may only reference earlier\
+  \ ones.\n\nRespond with JSON only."

@@ -50,7 +50,7 @@ goals:
       Every inventoried item has a rendered name from confident values, or a recorded
       reason it could not be named.
     depends_on: [readable, convention_frozen]
-    capabilities: [resolve]
+    capabilities: [resolve, transcribe]
     gate:
       id: all_accounted
       kind: hybrid

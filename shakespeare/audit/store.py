@@ -17,6 +17,8 @@ from ..contracts import (
     ChangeAction,
     ChangePlan,
     Composition,
+    Measurement,
+    MeasurementKind,
     ObligationResult,
     OperatorRequest,
     OperatorSpec,
@@ -377,6 +379,125 @@ class AuditStore:
                 rationale=decision.rationale,
                 decided_at=_now(),
             )
+
+    # -- measurements -------------------------------------------------------------------
+
+    def record_measurements(self, *, run_id: str, measurements: Sequence[Measurement]) -> int:
+        """Record what a run observed. Returns how many rows were written.
+
+        Called once, after the run has finished doing the thing it measured. Nothing
+        reads these rows during a run: they exist so a declared constant can later be
+        replaced by a measured one through an explicit promotion, which is what keeps a
+        run's behaviour fixed at its start and keeps `replay` meaningful.
+        """
+        if not measurements:
+            return 0
+        with self.engine.begin() as connection:
+            for item in measurements:
+                self._insert(
+                    connection,
+                    schema.measurements,
+                    measurement_id=_id(),
+                    run_id=run_id,
+                    kind=str(item.kind),
+                    subject=item.subject,
+                    resolved_model=item.resolved_model,
+                    prompt_version=item.prompt_version,
+                    value=item.value,
+                    weight=item.weight,
+                    count=item.count,
+                    outcome=item.outcome,
+                    bound=str(item.bound) if item.bound else None,
+                    recorded_at=_now(),
+                )
+        return len(measurements)
+
+    def measurements(
+        self,
+        *,
+        kind: MeasurementKind | None = None,
+        subject: str | None = None,
+        resolved_model: str | None = None,
+    ) -> list[dict[str, Any]]:
+        """Recorded observations, newest last, with the run each came from."""
+        query = select(schema.measurements).order_by(schema.measurements.c.recorded_at)
+        if kind is not None:
+            query = query.where(schema.measurements.c.kind == str(kind))
+        if subject is not None:
+            query = query.where(schema.measurements.c.subject == subject)
+        if resolved_model is not None:
+            query = query.where(schema.measurements.c.resolved_model == resolved_model)
+        with self.engine.begin() as connection:
+            return [dict(row) for row in connection.execute(query).mappings().all()]
+
+    def measured_subjects(self, kind: MeasurementKind) -> list[dict[str, Any]]:
+        """What has been measured of a given kind, and how much of it there is."""
+        grouped: dict[tuple[str, str], dict[str, Any]] = {}
+        for row in self.measurements(kind=kind):
+            key = (row["subject"], row["resolved_model"])
+            entry = grouped.setdefault(
+                key,
+                {
+                    "subject": row["subject"],
+                    "resolved_model": row["resolved_model"],
+                    "observations": 0,
+                    "runs": set(),
+                    "latest": "",
+                },
+            )
+            entry["observations"] += 1
+            entry["runs"].add(row["run_id"])
+            entry["latest"] = max(entry["latest"], row["recorded_at"])
+        return [
+            {**entry, "runs": len(entry["runs"])}
+            for entry in sorted(grouped.values(), key=lambda item: item["subject"])
+        ]
+
+    def resolved_models(self, run_id: str) -> list[str]:
+        """Which models actually answered in a run, busiest first.
+
+        A resolved model rather than a requested one: the point of recording it is that a
+        provider can change what an alias means, which is the drift `canary` exists for.
+        """
+        query = select(schema.model_invocations.c.resolved_model).where(
+            schema.model_invocations.c.run_id == run_id
+        )
+        with self.engine.begin() as connection:
+            rows = [row[0] for row in connection.execute(query) if row[0]]
+        counted: dict[str, int] = {}
+        for name in rows:
+            counted[name] = counted.get(name, 0) + 1
+        return [name for name, _ in sorted(counted.items(), key=lambda item: -item[1])]
+
+    def attempts_by_goal(self) -> dict[str, list[tuple[int, bool]]]:
+        """Every recorded attempt as (attempt number, whether its gate was met).
+
+        Needs no measurement of its own: whether a goal that failed once ever recovers is
+        already a fact of the log, which is why `max_goal_attempts` can be checked against
+        evidence without recording anything new.
+        """
+        query = (
+            select(
+                schema.stage_attempts.c.stage_name,
+                schema.stage_attempts.c.attempt_no,
+                schema.stage_verdicts.c.met,
+            )
+            .select_from(
+                schema.stage_attempts.join(
+                    schema.stage_verdicts,
+                    schema.stage_attempts.c.attempt_id == schema.stage_verdicts.c.attempt_id,
+                )
+            )
+            .order_by(schema.stage_attempts.c.stage_name, schema.stage_attempts.c.attempt_no)
+        )
+        with self.engine.begin() as connection:
+            rows = connection.execute(query).mappings().all()
+        grouped: dict[str, list[tuple[int, bool]]] = {}
+        for row in rows:
+            grouped.setdefault(row["stage_name"], []).append(
+                (int(row["attempt_no"]), bool(row["met"]))
+            )
+        return grouped
 
     # -- mutation -----------------------------------------------------------------------
 
