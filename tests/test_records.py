@@ -204,3 +204,40 @@ class TestRenderingFromTheTable:
     def test_the_refusal_names_where_items_come_from(self, tmp_path: Path) -> None:
         with pytest.raises(ValueError, match="record.read"):
             self._render({**self._spec(), "records": []}, tmp_path)
+
+
+class TestAnUnbalancedPlanNamesItsCause:
+    """Two different failures wear the same counts, and only one of them is losing work."""
+
+    def _assemble(self, entries_share_ids: bool):
+        from shakespeare.operators.planning import ScannedItem, assemble_plan
+
+        scanned = tuple(
+            ScannedItem(
+                item_id="same" if entries_share_ids else f"i{n}",
+                relpath=f"q/{n}.pdf",
+                sha256="0" * 64,
+                media_type="application/pdf",
+                size_bytes=3,
+            )
+            for n in range(3)
+        )
+        return assemble_plan(
+            run_id="r",
+            workflow_id="w",
+            workflow_digest="d",
+            decision_digest="s",
+            scanned=scanned,
+            planned=(),
+            skipped=(),
+        )
+
+    def test_shared_identities_are_reported_as_shared(self) -> None:
+        from shakespeare.operators.planning import AssemblyError
+
+        with pytest.raises(AssemblyError, match="share an item_id"):
+            self._assemble(entries_share_ids=True)
+
+    def test_distinct_identities_assemble(self) -> None:
+        plan = self._assemble(entries_share_ids=False)
+        assert len(plan.entries) == 3

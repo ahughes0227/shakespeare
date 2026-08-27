@@ -79,7 +79,14 @@ def scan(
 
         items.append(
             ScannedItem(
-                item_id=sha256[:16],
+                # Identity is the file, not its contents. Two byte-identical invoices in
+                # different quarters are two things to rename, and a pure content address
+                # made them one: a plan then carried fewer entries than there were files
+                # and failed its own balance check, reporting "5 entries for 5 scanned"
+                # without saying that four of the five shared an id.
+                item_id=hashlib.sha256(
+                    f"{relpath}\0{sha256}".encode()
+                ).hexdigest()[:16],
                 relpath=relpath,
                 sha256=sha256,
                 media_type=media_type_of(path),

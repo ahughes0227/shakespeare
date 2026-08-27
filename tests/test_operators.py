@@ -77,11 +77,35 @@ class TestScan:
         assert [item.relpath for item in items] == ["real.pdf"]
         assert skipped == ({"relpath": "link.pdf", "reason": "symlink"},)
 
-    def test_identical_content_shares_an_item_id(self, tmp_path: pathlib.Path) -> None:
+    def test_identical_files_are_two_things_to_rename(self, tmp_path: pathlib.Path) -> None:
+        """Identity is the file, not its contents.
+
+        A pure content address made duplicates one item, and a live run on five
+        byte-identical documents built a plan with one entry for five files and failed
+        its own balance check. Duplicate scans are ordinary, and both copies need naming.
+        """
         (tmp_path / "a.pdf").write_bytes(b"same")
         (tmp_path / "b.pdf").write_bytes(b"same")
         items, _ = scan(tmp_path)
-        assert items[0].item_id == items[1].item_id
+        assert len({item.item_id for item in items}) == 2
+
+    def test_duplicate_content_is_still_visible_as_duplicate(
+        self, tmp_path: pathlib.Path
+    ) -> None:
+        """Nothing is lost: the content digest is recorded beside the identity."""
+        (tmp_path / "a.pdf").write_bytes(b"same")
+        (tmp_path / "b.pdf").write_bytes(b"same")
+        items, _ = scan(tmp_path)
+        assert len({item.sha256 for item in items}) == 1
+
+    def test_the_same_file_keeps_its_identity_across_scans(
+        self, tmp_path: pathlib.Path
+    ) -> None:
+        """Identity has to be stable, or a resumed run cannot tell what it already did."""
+        (tmp_path / "a.pdf").write_bytes(b"same")
+        first, _ = scan(tmp_path)
+        second, _ = scan(tmp_path)
+        assert first[0].item_id == second[0].item_id
 
 
 class TestExtraction:

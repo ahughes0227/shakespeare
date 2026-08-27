@@ -137,9 +137,19 @@ def assemble_plan(
     )
     total = len(scanned) + len(skipped)
     if not plan.balanced(total):
+        # Two different failures wear the same counts, so the message says which. Entries
+        # short of the total means work went missing; the right number of entries sharing
+        # ids means two things were treated as one, which is what a live run hit on five
+        # byte-identical documents.
+        distinct = len({entry.item_id for entry in plan.entries})
+        cause = (
+            f"{len(plan.entries) - distinct} share an item_id"
+            if len(plan.entries) == total
+            else "some items produced no entry"
+        )
         raise AssemblyError(
-            f"unbalanced plan: {len(plan.entries)} entries for {len(scanned)} scanned "
-            f"and {len(skipped)} skipped items"
+            f"unbalanced plan: {len(plan.entries)} entries ({distinct} distinct) for "
+            f"{len(scanned)} scanned and {len(skipped)} skipped items - {cause}"
         )
     return plan
 
