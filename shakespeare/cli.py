@@ -1171,7 +1171,7 @@ def _declared_floor() -> float | None:
     """The floor the default config group declares, or None if it cannot be read."""
     import yaml
 
-    path = Path(__file__).resolve().parents[1] / "configs" / "confidence" / "balanced.yaml"
+    path = Path(__file__).resolve().parents[1] / "conventions" / "confidence" / "balanced.yaml"
     if not path.is_file():
         return None
     try:

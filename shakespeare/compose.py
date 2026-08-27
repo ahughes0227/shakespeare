@@ -22,7 +22,7 @@ FORBIDDEN_TOKENS: tuple[str, ...] = ("_target_", "${", "~", "+", "..")
 _SAFE_KEY = re.compile(r"^[a-z][a-z0-9_]*$")
 _SAFE_CHOICE = re.compile(r"^[a-z][a-z0-9_]*$")
 
-CONFIG_ROOT = Path(__file__).resolve().parents[1] / "configs"
+CONFIG_ROOT = Path(__file__).resolve().parents[1] / "conventions"
 
 
 class CompositionError(ValueError):

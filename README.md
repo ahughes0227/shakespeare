@@ -183,4 +183,4 @@ SHAKESPEARE_LIVE=1 SHAKESPEARE_MODEL=openrouter/openai/gpt-5-mini \
 *skip* rather than silently pass — so the gap stays visible in the test output. Install it
 with `brew install tesseract` to cover that path.
 
-Start with `_architecture/00_OVERVIEW.md` and `_core/glossary.md`.
+Start with `docs/00_OVERVIEW.md` and `docs/reference/glossary.md`.

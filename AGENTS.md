@@ -6,8 +6,8 @@ Shakespeare is a staged, transactional file-operations runtime:
            -> domain subagents compile Hydra compositions -> runtime executes
            -> obligations verified -> planner reviews -> atomic commit
 
-Read `_architecture/00_OVERVIEW.md` through `05_TRANSACTIONS.md` in order before making
-architectural changes, then `_core/glossary.md`.
+Read `docs/00_OVERVIEW.md` through `05_TRANSACTIONS.md` in order before making
+architectural changes, then `docs/reference/glossary.md`.
 
 ## Non-negotiable boundaries
 
@@ -36,4 +36,4 @@ Do not let a model register operators, grant approvals, widen a catalog, or rais
 
 Prefer strict Pydantic contracts, append-only records, deterministic tests, and maintained
 external libraries. Reimplementing a maintained library requires an ADR in
-`_architecture/adr/`. Core tests must run offline with fake planner and agents.
+`docs/adr/`. Core tests must run offline with fake planner and agents.

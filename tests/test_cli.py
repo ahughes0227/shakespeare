@@ -201,7 +201,7 @@ class TestHygiene:
         import subprocess
 
         result = subprocess.run(
-            ["git", "status", "--porcelain", "_prompts", "_stages", "_workflows", "configs"],
+            ["git", "status", "--porcelain", "_prompts", "_capabilities", "_workflows", "conventions"],
             cwd=Path(__file__).resolve().parents[1],
             capture_output=True,
             text=True,
