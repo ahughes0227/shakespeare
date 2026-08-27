@@ -9,14 +9,14 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from shakespeare.artifacts import ArtifactStore, Quality
 from shakespeare.capabilities import CapabilityRunner, CapabilitySpec
 from shakespeare.capabilities.runner import Organization, _record_progress
 from shakespeare.contracts import BudgetEnvelope, Invocation
-from shakespeare.executor import Budget, Executor
 from shakespeare.operators.builtin import build_registry
 from shakespeare.runners import pure_transform
-from shakespeare.verifier import Verifier
+from shakespeare.runtime.artifacts import ArtifactStore, Quality
+from shakespeare.runtime.executor import Budget, Executor
+from shakespeare.runtime.verifier import Verifier
 
 SLICER = CapabilitySpec(
     id="slicer",

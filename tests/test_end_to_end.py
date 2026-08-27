@@ -14,19 +14,19 @@ from pathlib import Path
 
 import pytest
 from shakespeare.agent import ModelCapabilityAgent
-from shakespeare.audit import AuditStore
 from shakespeare.capabilities import CapabilityRegistry
 from shakespeare.capabilities.runner import Organization
 from shakespeare.contracts import ChangeAction, RequestContract, RouteDecision
 from shakespeare.domain.filesystem import scan
-from shakespeare.executor import Executor
 from shakespeare.gateway import FakeGateway, ModelProfile
 from shakespeare.operators.builtin import build_registry
 from shakespeare.planner import CapabilityChoice, GoalChoice, Judgment, ModelGoalPlanner
 from shakespeare.prompts import PromptStore
-from shakespeare.runtime import Runtime
-from shakespeare.telemetry import RecordingExporter, Tracer
-from shakespeare.verifier import Verifier
+from shakespeare.runtime.audit import AuditStore
+from shakespeare.runtime.engine import Runtime
+from shakespeare.runtime.executor import Executor
+from shakespeare.runtime.telemetry import RecordingExporter, Tracer
+from shakespeare.runtime.verifier import Verifier
 from shakespeare.workflows import WorkflowRegistry
 
 PROFILE = ModelProfile(profile_id="scripted", model="openrouter/openai/gpt-5-mini")

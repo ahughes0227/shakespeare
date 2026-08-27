@@ -13,7 +13,6 @@ from shakespeare.admission import (
     compute_risk,
     digest_tree,
 )
-from shakespeare.audit import AuditStore
 from shakespeare.contracts import (
     AdmissionChoice,
     AdmissionDisposition,
@@ -27,6 +26,7 @@ from shakespeare.contracts import (
 )
 from shakespeare.operators.builtin import build_registry
 from shakespeare.registry import FAMILY_RUNNERS
+from shakespeare.runtime.audit import AuditStore
 
 
 class StubRenderer:
@@ -230,7 +230,7 @@ class TestProvenance:
     def test_request_report_and_decision_are_all_recorded(
         self, service: AdmissionService
     ) -> None:
-        from shakespeare.audit import schema
+        from shakespeare.runtime.audit import schema
         from sqlalchemy import select
 
         report, candidate = service.evaluate(request_for())

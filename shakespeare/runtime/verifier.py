@@ -10,8 +10,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from .compose import CompositionError, validate_parameters, validate_selections
-from .contracts import (
+from ..contracts import (
     Composition,
     DomainSpec,
     ErrorCode,
@@ -20,9 +19,10 @@ from .contracts import (
     StagePlan,
     StageSpec,
 )
-from .domain.planning import run_check
-from .operators.builtin import RUNTIME_ONLY
-from .registry import OperatorRegistry
+from ..operators.builtin import RUNTIME_ONLY
+from ..registry import OperatorRegistry
+from .checks import run_check
+from .compose import CompositionError, validate_parameters, validate_selections
 
 
 @dataclass(frozen=True)

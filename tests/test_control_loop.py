@@ -11,10 +11,10 @@ from pathlib import Path
 
 import pytest
 from shakespeare.agent import FakeCapabilityAgent
-from shakespeare.artifacts import Quality
 from shakespeare.contracts import ChangeAction, Invocation, RouteDecision
-from shakespeare.goals import GateOutcome
 from shakespeare.planner import ScriptedGoalPlanner
+from shakespeare.runtime.artifacts import Quality
+from shakespeare.runtime.goals import GateOutcome
 
 from harness import build, org
 
@@ -158,7 +158,12 @@ class TestTheLoopIsGeneric:
             "acquire",
             "convene",
         )
-        for module in ("control.py", "runtime.py", "gating.py", "capabilities/runner.py"):
+        for module in (
+            "runtime/control.py",
+            "runtime/engine.py",
+            "runtime/gating.py",
+            "capabilities/runner.py",
+        ):
             source = (root / module).read_text()
             for name in forbidden:
                 assert name not in source, f"{module} names {name!r}"
@@ -312,7 +317,7 @@ class TestAttemptsAreBoundedByProgressNotACount:
         self, tmp_path: Path
     ) -> None:
         """Progress means the retry is worth paying for, whatever the attempt number."""
-        from shakespeare.control import Controller
+        from shakespeare.runtime.control import Controller
 
         seen = []
         verdict = _verdict("still_short")
@@ -353,6 +358,6 @@ def _verdict(*failed_checks: str):
 
 
 def _achievement_of(context, result):
-    from shakespeare.control import _achievement
+    from shakespeare.runtime.control import _achievement
 
     return _achievement(context, result)

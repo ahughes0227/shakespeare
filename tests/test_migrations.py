@@ -15,8 +15,8 @@ import sys
 from pathlib import Path
 
 import pytest
-from shakespeare.audit import AuditStore
-from shakespeare.audit.schema import metadata
+from shakespeare.runtime.audit import AuditStore
+from shakespeare.runtime.audit.schema import metadata
 
 ROOT = Path(__file__).resolve().parents[1]
 

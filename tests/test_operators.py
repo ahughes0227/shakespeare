@@ -6,15 +6,10 @@ import pytest
 from shakespeare.contracts import ChangeAction, OperatorFamily
 from shakespeare.domain.extraction import Backend, extract
 from shakespeare.domain.filesystem import scan
-from shakespeare.domain.planning import (
-    AssemblyError,
-    PlannedName,
-    ScannedItem,
-    assemble_plan,
-    run_check,
-)
+from shakespeare.domain.planning import AssemblyError, PlannedName, ScannedItem, assemble_plan
 from shakespeare.operators.builtin import BUILTIN, RUNTIME_ONLY, build_registry
 from shakespeare.runners import RunnerError, allowlist, pure_transform
+from shakespeare.runtime.checks import run_check
 
 
 class TestFamilyDiscipline:
@@ -254,7 +249,9 @@ class TestObligations:
         assert result.passed
 
     def test_unknown_check_is_refused(self) -> None:
-        with pytest.raises(AssemblyError, match="unknown obligation check"):
+        from shakespeare.runtime.checks import CheckError
+
+        with pytest.raises(CheckError, match="unknown obligation check"):
             run_check("o", "rm -rf /", {})
 
 

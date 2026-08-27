@@ -11,7 +11,7 @@ from uuid import uuid4
 from sqlalchemy import Engine, create_engine, event, insert, select
 from sqlalchemy.engine import Connection
 
-from ..contracts import (
+from ...contracts import (
     AdmissionDecision,
     AdmissionReport,
     ChangeAction,

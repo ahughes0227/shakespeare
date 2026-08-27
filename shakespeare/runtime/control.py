@@ -23,18 +23,18 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
-from .artifacts import ArtifactStore
-from .audit import AuditStore
-from .capabilities import CapabilityRegistry, CapabilityRunner, CapabilitySpec
-from .capabilities.runner import CapabilityOutcome
-from .contracts import (
+from ..capabilities import CapabilityRegistry, CapabilityRunner, CapabilitySpec
+from ..capabilities.runner import CapabilityOutcome
+from ..contracts import (
     ChangePlan,
     ErrorCode,
     RequestContract,
     content_digest,
     utc_now,
 )
-from .domain import mutation
+from ..domain import mutation
+from .artifacts import ArtifactStore
+from .audit import AuditStore
 from .gating import GateEvaluator
 from .goals import GateResult, Goal, GoalGraph
 from .telemetry import Tracer

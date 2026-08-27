@@ -16,10 +16,8 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
-from .artifacts import ArtifactStore
-from .audit import AuditStore
-from .capabilities import CapabilityRegistry, CapabilityRunner
-from .contracts import (
+from ..capabilities import CapabilityRegistry, CapabilityRunner
+from ..contracts import (
     Bound,
     BudgetEnvelope,
     ChangePlan,
@@ -29,15 +27,17 @@ from .contracts import (
     RequestContract,
     content_digest,
 )
+from ..domain import mutation
+from ..prompts import PromptStore
+from ..registry import OperatorRegistry
+from ..workflows import RegisteredWorkflow, WorkflowRegistry
+from .artifacts import ArtifactStore
+from .audit import AuditStore
 from .control import Controller, GoalAttempt, commit_if_verified, new_run_id
-from .domain import mutation
 from .executor import Budget, Executor
 from .goals import Goal
-from .prompts import PromptStore
-from .registry import OperatorRegistry
 from .telemetry import Tracer
 from .verifier import Denial, Verifier
-from .workflows import RegisteredWorkflow, WorkflowRegistry
 
 
 class RuntimeError_(RuntimeError):
@@ -344,7 +344,7 @@ class Runtime:
         Deliberately after: an admitted component becomes usable on the next round rather
         than mid-organization, which keeps a round a single coherent unit of work.
         """
-        from .contracts import (
+        from ..contracts import (
             AdmissionChoice,
             AdmissionDisposition,
             DecidedBy,
@@ -447,7 +447,7 @@ class Runtime:
         self, run_id: str, workflow: RegisteredWorkflow, attempts: tuple[GoalAttempt, ...]
     ) -> None:
         """Record each goal attempt as a unit of work, with its gate result."""
-        from .contracts import (
+        from ..contracts import (
             Composition,
             DomainGoal,
             ObligationResult,

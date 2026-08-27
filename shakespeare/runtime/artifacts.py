@@ -21,7 +21,7 @@ from uuid import uuid4
 
 from pydantic import Field
 
-from .contracts import Contract, content_digest, utc_now
+from ..contracts import Contract, content_digest, utc_now
 
 
 class Quality(StrEnum):

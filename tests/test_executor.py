@@ -5,9 +5,9 @@ from __future__ import annotations
 from pathlib import Path
 
 from shakespeare.contracts import BudgetEnvelope, Composition, DomainSpec, Invocation
-from shakespeare.executor import Budget, Executor
 from shakespeare.operators.builtin import build_registry
-from shakespeare.verifier import Verifier
+from shakespeare.runtime.executor import Budget, Executor
+from shakespeare.runtime.verifier import Verifier
 
 
 class TestBindingFailuresTeach:

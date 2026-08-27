@@ -127,7 +127,7 @@ class TestPathIndependence:
         import shakespeare
 
         root = Path(shakespeare.__file__).parent
-        for module in ("control.py", "runtime.py", "gating.py"):
+        for module in ("runtime/control.py", "runtime/engine.py", "runtime/gating.py"):
             source = (root / module).read_text()
             for component in ("doc.extract", "name.render", "plan.assemble", "auto_chain"):
                 assert component not in source, f"{module} names {component}"

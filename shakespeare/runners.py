@@ -19,6 +19,7 @@ from pydantic import ValidationError
 
 from .contracts import ChangeAction, ChangePlan, OperatorFamily, ReversalRecord
 from .domain import extraction, filesystem, mutation, naming, planning, records, text
+from .runtime import checks
 
 Operation = Callable[[dict[str, Any], Path], dict[str, Any]]
 
@@ -369,7 +370,7 @@ def _record_read(arguments: dict[str, Any], workspace: Path) -> dict[str, Any]:
 
 
 def _obligation_check(arguments: dict[str, Any], workspace: Path) -> dict[str, Any]:
-    result = planning.run_check(
+    result = checks.run_check(
         arguments["obligation_id"], arguments["check"], arguments.get("payload", {})
     )
     return result.model_dump(mode="json")

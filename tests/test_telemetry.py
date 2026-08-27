@@ -12,7 +12,7 @@ import inspect
 import pytest
 from pydantic import ValidationError
 from shakespeare.contracts import ErrorCode, TelemetryEnvelope
-from shakespeare.telemetry import RecordingExporter, Tracer
+from shakespeare.runtime.telemetry import RecordingExporter, Tracer
 
 #: Strings standing in for real customer data in the fixture set.
 SENSITIVE = (

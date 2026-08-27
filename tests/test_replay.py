@@ -10,16 +10,16 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from shakespeare.audit import AuditStore
 from shakespeare.capabilities import CapabilityRegistry
 from shakespeare.contracts import ChangeAction
 from shakespeare.domain import mutation
-from shakespeare.executor import Executor
 from shakespeare.operators.builtin import build_registry
-from shakespeare.replay import ReplayError, assert_same_workflow, journal_components
-from shakespeare.runtime import Runtime
-from shakespeare.telemetry import RecordingExporter, Tracer
-from shakespeare.verifier import Verifier
+from shakespeare.runtime.audit import AuditStore
+from shakespeare.runtime.engine import Runtime
+from shakespeare.runtime.executor import Executor
+from shakespeare.runtime.replay import ReplayError, assert_same_workflow, journal_components
+from shakespeare.runtime.telemetry import RecordingExporter, Tracer
+from shakespeare.runtime.verifier import Verifier
 from shakespeare.workflows import WorkflowRegistry
 
 from harness import build
@@ -269,7 +269,7 @@ class TestPreviewCommitsWhatItShowed:
         audit.close()
 
     def test_committing_without_a_plan_is_refused(self, tmp_path: Path) -> None:
-        from shakespeare.runtime import RunResult
+        from shakespeare.runtime.engine import RunResult
 
         runtime, _, audit, _ = build(tmp_path)
         with pytest.raises(Exception, match="no plan to commit"):

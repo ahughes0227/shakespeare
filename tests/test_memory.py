@@ -18,8 +18,8 @@ from typing import Any
 
 import pytest
 from shakespeare import memory
-from shakespeare.audit import AuditStore
 from shakespeare.contracts import Bound, Measurement, MeasurementKind
+from shakespeare.runtime.audit import AuditStore
 
 
 @pytest.fixture

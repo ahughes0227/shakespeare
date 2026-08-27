@@ -16,7 +16,6 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
-from .audit.metrics import snapshot
 from .bootstrap import Services, build_runtime, default_state_root
 from .capabilities import CapabilityRegistryError
 from .contracts import (
@@ -32,6 +31,7 @@ from .contracts import (
 from .domain import mutation
 from .gateway import GatewayError
 from .planner import FakePlanner, Planner
+from .runtime.audit.metrics import snapshot
 from .workflows import WorkflowRegistryError
 
 if TYPE_CHECKING:
@@ -469,7 +469,7 @@ def replay(
     verifier, executor and obligations run. A replay that reproduces the original plan is
     therefore evidence that the recorded compositions really do determine the result.
     """
-    from .replay import ReplayError, assert_same_workflow, journal_components
+    from .runtime.replay import ReplayError, assert_same_workflow, journal_components
 
     inspect = _services(state_root, planner=_no_model(), agents={})
     original = inspect.audit.recorded_plan(run_id)
@@ -554,7 +554,7 @@ def undo(
     """Reverse a committed run using its journaled reversal records."""
     from sqlalchemy import select
 
-    from .audit import schema
+    from .runtime.audit import schema
 
     # Reversal replays journaled facts and makes no model call, so it must not require a
     # model profile to be configured.
@@ -1171,7 +1171,7 @@ def _declared_floor() -> float | None:
     """The floor the default config group declares, or None if it cannot be read."""
     import yaml
 
-    path = Path(__file__).resolve().parents[1] / "conventions" / "confidence" / "balanced.yaml"
+    path = Path(__file__).resolve().parent / "conventions" / "confidence" / "balanced.yaml"
     if not path.is_file():
         return None
     try:

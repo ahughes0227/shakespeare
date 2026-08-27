@@ -15,7 +15,7 @@ from shakespeare.contracts import (
     StageSpec,
 )
 from shakespeare.operators.builtin import build_registry
-from shakespeare.verifier import Denial, Verifier, unmet
+from shakespeare.runtime.verifier import Denial, Verifier, unmet
 
 ACQUISITION = DomainSpec(
     id="content_acquisition",

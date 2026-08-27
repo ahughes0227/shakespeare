@@ -19,7 +19,6 @@ from typing import Protocol
 from uuid import uuid4
 
 from . import families
-from .audit import AuditStore
 from .contracts import (
     AUTO_ADMISSIBLE_FAMILIES,
     AdmissionChoice,
@@ -39,6 +38,7 @@ from .contracts import (
 )
 from .registry import FAMILY_RUNNERS, OperatorRegistry
 from .runners import allowlist
+from .runtime.audit import AuditStore
 
 #: The four tiers a rendered package must pass before it can be admitted.
 TEST_TIERS: tuple[str, ...] = ("contract", "containment", "functional", "regression")

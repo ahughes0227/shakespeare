@@ -16,8 +16,8 @@ from typing import Any
 
 from pydantic import Field, model_validator
 
+from ..contracts import Contract
 from .artifacts import Artifact, Quality
-from .contracts import Contract
 
 
 class GateKind(StrEnum):

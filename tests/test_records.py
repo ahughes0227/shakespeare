@@ -12,9 +12,9 @@ from pathlib import Path
 import pytest
 from shakespeare.contracts import BudgetEnvelope, Composition, DomainSpec, Invocation
 from shakespeare.domain import records
-from shakespeare.executor import Budget, Executor
 from shakespeare.operators.builtin import build_registry
-from shakespeare.verifier import Verifier
+from shakespeare.runtime.executor import Budget, Executor
+from shakespeare.runtime.verifier import Verifier
 
 
 def row(item_id: str, vendor: str = "ACME", confidence: float = 0.9) -> dict:

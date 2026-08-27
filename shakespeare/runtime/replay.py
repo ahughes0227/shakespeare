@@ -14,8 +14,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-from .audit import AuditStore
-from .contracts import (
+from ..contracts import (
     Composition,
     ObligationResult,
     RequestContract,
@@ -25,7 +24,8 @@ from .contracts import (
     StageSpec,
     StageVerdict,
 )
-from .gateway import ModelUsage
+from ..gateway import ModelUsage
+from .audit import AuditStore
 
 
 class ReplayError(RuntimeError):
@@ -103,7 +103,7 @@ class JournalPlanner:
         A replay reproduces decisions rather than re-taking them; consulting the corpus
         again is exactly how a replay would stop being one.
         """
-        from .planner import CapabilityChoice
+        from ..planner import CapabilityChoice
 
         names = [item["id"] if isinstance(item, dict) else item for item in candidates]
         for item in self.recorded.attempts:
@@ -178,7 +178,7 @@ class JournalAgent:
         prior: list[dict[str, Any]],
         catalog_summary: dict[str, Any],
     ) -> tuple[Any, ModelUsage | None]:
-        from .capabilities.runner import Organization
+        from ..capabilities.runner import Organization
 
         rounds = [
             payload

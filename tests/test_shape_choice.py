@@ -14,14 +14,14 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from shakespeare.artifacts import ArtifactStore
 from shakespeare.capabilities import CapabilityRegistry, CapabilityRunner
 from shakespeare.capabilities.runner import Organization
 from shakespeare.contracts import BudgetEnvelope, Invocation, RouteDecision
-from shakespeare.executor import Budget, Executor
 from shakespeare.operators.builtin import build_registry
 from shakespeare.planner import ScriptedGoalPlanner
-from shakespeare.verifier import Verifier
+from shakespeare.runtime.artifacts import ArtifactStore
+from shakespeare.runtime.executor import Budget, Executor
+from shakespeare.runtime.verifier import Verifier
 
 from harness import build, org, seed_invoices, values_for
 
@@ -231,7 +231,7 @@ class TestTheFrozenConventionIsBinding:
 
     @staticmethod
     def _check(payload: dict) -> object:
-        from shakespeare.domain.planning import check_convention_followed
+        from shakespeare.runtime.checks import check_convention_followed
 
         return check_convention_followed("convention_followed", payload)
 

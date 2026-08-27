@@ -18,7 +18,7 @@ from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
 from typing import Any, Protocol
 
-from .contracts import ErrorCode, TelemetryEnvelope, content_digest
+from ..contracts import ErrorCode, TelemetryEnvelope, content_digest
 
 
 def digest_of(value: Any) -> str:

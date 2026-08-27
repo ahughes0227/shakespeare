@@ -16,7 +16,7 @@ from shakespeare.gateway import FakeGateway, GatewayError, ModelProfile
 from shakespeare.operators.builtin import build_registry
 from shakespeare.planner import CapabilityChoice, GoalChoice, Judgment, ModelGoalPlanner
 from shakespeare.prompts import PromptStore
-from shakespeare.verifier import Denial, Verifier
+from shakespeare.runtime.verifier import Denial, Verifier
 from shakespeare.workflows import WorkflowRegistry
 
 PROFILE = ModelProfile(profile_id="test", model="openrouter/openai/gpt-5-mini")

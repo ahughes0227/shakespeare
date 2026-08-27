@@ -18,9 +18,9 @@ from shakespeare.contracts import (
     Invocation,
     OperatorFamily,
 )
-from shakespeare.executor import Budget, Executor
 from shakespeare.operators.builtin import BUILTIN, RUNTIME_ONLY, build_registry
-from shakespeare.verifier import Denial, Verifier
+from shakespeare.runtime.executor import Budget, Executor
+from shakespeare.runtime.verifier import Denial, Verifier
 
 DOMAIN = DomainSpec(
     id="probe",

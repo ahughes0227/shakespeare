@@ -2,7 +2,7 @@
 
 The audit log is append-only and permanent, so its schema is migrated rather than
 recreated.  `target_metadata` points at the single source of truth in
-`shakespeare.audit.schema`, which lets `alembic check` detect drift between the models
+`shakespeare.runtime.audit.schema`, which lets `alembic check` detect drift between the models
 and the migrations.
 """
 
@@ -11,7 +11,7 @@ from __future__ import annotations
 import os
 
 from alembic import context
-from shakespeare.audit import schema
+from shakespeare.runtime.audit import schema
 from sqlalchemy import engine_from_config, pool
 
 config = context.config

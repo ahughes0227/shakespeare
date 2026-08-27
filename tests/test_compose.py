@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
-from shakespeare.compose import CompositionError, catalog, compose, validate_parameters
+from shakespeare.runtime.compose import CompositionError, catalog, compose, validate_parameters
 
 
 class TestCatalog:

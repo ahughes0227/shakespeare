@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import sqlalchemy as sa
 from alembic import op
-from shakespeare.audit import schema
+from shakespeare.runtime.audit import schema
 
 revision = "0004_capability_gaps"
 down_revision = "0003_measurements"

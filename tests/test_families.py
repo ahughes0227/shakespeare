@@ -124,9 +124,9 @@ class TestMarkerVerification:
 class TestAdmissionEnforcesFeatures:
     def test_a_request_naming_an_undeclared_slot_escalates(self, tmp_path: Path) -> None:
         from shakespeare.admission import AdmissionService
-        from shakespeare.audit import AuditStore
         from shakespeare.contracts import AdmissionDisposition, OperatorRequest, RequestKind
         from shakespeare.operators.builtin import build_registry
+        from shakespeare.runtime.audit import AuditStore
 
         from test_admission import StubRenderer, passing_tests
 

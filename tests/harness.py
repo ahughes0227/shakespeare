@@ -10,17 +10,17 @@ from pathlib import Path
 from typing import Any
 
 from shakespeare.agent import FakeCapabilityAgent
-from shakespeare.artifacts import Quality
-from shakespeare.audit import AuditStore
 from shakespeare.capabilities import CapabilityRegistry
 from shakespeare.capabilities.runner import Organization
 from shakespeare.contracts import Invocation, RequestContract, RouteDecision, SemanticCard
-from shakespeare.executor import Executor
 from shakespeare.operators.builtin import build_registry
 from shakespeare.planner import ScriptedGoalPlanner
-from shakespeare.runtime import Runtime
-from shakespeare.telemetry import RecordingExporter, Tracer
-from shakespeare.verifier import Verifier
+from shakespeare.runtime.artifacts import Quality
+from shakespeare.runtime.audit import AuditStore
+from shakespeare.runtime.engine import Runtime
+from shakespeare.runtime.executor import Executor
+from shakespeare.runtime.telemetry import RecordingExporter, Tracer
+from shakespeare.runtime.verifier import Verifier
 from shakespeare.workflows import WorkflowRegistry
 
 INVOICES: dict[str, tuple[str, str, str, str]] = {

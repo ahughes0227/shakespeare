@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 import pytest
-from shakespeare.audit import AuditStore
-from shakespeare.audit.schema import metadata
 from shakespeare.contracts import (
     Composition,
     DomainGoal,
@@ -13,6 +11,8 @@ from shakespeare.contracts import (
     StageVerdict,
     utc_now,
 )
+from shakespeare.runtime.audit import AuditStore
+from shakespeare.runtime.audit.schema import metadata
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 

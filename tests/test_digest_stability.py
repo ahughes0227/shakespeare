@@ -98,7 +98,7 @@ class TestSetOrdering:
 class TestReplayDependsOnIt:
     def test_replay_accepts_a_digest_recomputed_in_another_process(self) -> None:
         """Replay refuses on a digest mismatch, so an unstable digest disables it."""
-        from shakespeare.replay import assert_same_workflow
+        from shakespeare.runtime.replay import assert_same_workflow
 
         result = subprocess.run(
             [sys.executable, "-c", PROBE.format(root=str(ROOT))],
@@ -118,7 +118,7 @@ class TestReplayDependsOnIt:
         assert_same_workflow(recorded, current.get("rename_files").digest())
 
     def test_a_genuinely_changed_workflow_is_still_refused(self) -> None:
-        from shakespeare.replay import ReplayError, assert_same_workflow
+        from shakespeare.runtime.replay import ReplayError, assert_same_workflow
 
         with pytest.raises(ReplayError):
             assert_same_workflow("a" * 64, "b" * 64)

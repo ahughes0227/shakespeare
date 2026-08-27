@@ -19,7 +19,7 @@ from shakespeare.contracts import (
     RequestKind,
 )
 from shakespeare.operators.builtin import build_registry
-from shakespeare.verifier import Denial, Verifier
+from shakespeare.runtime.verifier import Denial, Verifier
 
 from harness import INVOICES, build, rename_agent, seed_invoices, values_for
 from test_admission import StubRenderer, passing_tests
@@ -92,7 +92,7 @@ class TestAutoAdmissionInsideARun:
         audit.close()
 
     def test_the_full_provenance_is_queryable(self, tmp_path: Path) -> None:
-        from shakespeare.audit import schema
+        from shakespeare.runtime.audit import schema
         from sqlalchemy import select
 
         runtime, request, audit = _with_ask(tmp_path, ask())
@@ -146,7 +146,7 @@ class TestWithoutAnAdmissionService:
         assert runtime.grants == {}
         assert "text.titlecase" not in runtime.operators
 
-        from shakespeare.audit import schema
+        from shakespeare.runtime.audit import schema
         from sqlalchemy import select
 
         with audit.engine.begin() as connection:

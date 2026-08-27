@@ -10,19 +10,19 @@ from pathlib import Path
 
 import pytest
 from shakespeare.agent import FakeCapabilityAgent
-from shakespeare.audit import AuditStore
 from shakespeare.capabilities import CapabilityRegistry
 from shakespeare.contracts import (
     BudgetEnvelope,
     RouteDecision,
 )
-from shakespeare.executor import Budget, Executor
-from shakespeare.graph import WorkflowGraph, sqlite_checkpointer
 from shakespeare.operators.builtin import build_registry
 from shakespeare.planner import ScriptedGoalPlanner
-from shakespeare.runtime import Runtime
-from shakespeare.telemetry import RecordingExporter, Tracer
-from shakespeare.verifier import Verifier
+from shakespeare.runtime.audit import AuditStore
+from shakespeare.runtime.engine import Runtime
+from shakespeare.runtime.executor import Budget, Executor
+from shakespeare.runtime.graph import WorkflowGraph, sqlite_checkpointer
+from shakespeare.runtime.telemetry import RecordingExporter, Tracer
+from shakespeare.runtime.verifier import Verifier
 from shakespeare.workflows import WorkflowRegistry
 
 from harness import INVOICES, build, rename_agent, seed_invoices, values_for
@@ -68,7 +68,7 @@ class TestDurability:
         connection, so nothing but the SQLite file carries the run forward — which is what
         surviving a killed process actually means.
         """
-        from shakespeare.graph import run_with_graph
+        from shakespeare.runtime.graph import run_with_graph
 
         runtime, request, audit, _ = build(tmp_path)
         checkpoint = tmp_path / "checkpoints.sqlite3"
@@ -104,7 +104,7 @@ class TestDurability:
         committing something it cannot account for.
         """
         from langgraph.types import Command
-        from shakespeare.graph import run_with_graph
+        from shakespeare.runtime.graph import run_with_graph
 
         runtime, request, audit, _ = build(tmp_path)
         checkpoint = tmp_path / "cp.sqlite3"
@@ -129,8 +129,8 @@ class TestDurability:
         self, tmp_path: Path
     ) -> None:
         """A suspended run must leave completed facts only, never half-written ones."""
-        from shakespeare.audit import schema
-        from shakespeare.graph import run_with_graph
+        from shakespeare.runtime.audit import schema
+        from shakespeare.runtime.graph import run_with_graph
         from sqlalchemy import select
 
         runtime, request, audit, _ = build(tmp_path)
@@ -207,7 +207,7 @@ class TestUnsatisfiableGoal:
 
     def test_the_gate_says_what_is_missing(self, tmp_path: Path) -> None:
         from shakespeare.capabilities.runner import Organization
-        from shakespeare.goals import GateOutcome
+        from shakespeare.runtime.goals import GateOutcome
 
         agent = FakeCapabilityAgent()
         agent.queue("survey", Organization(intent="produce nothing", sufficient=True))
