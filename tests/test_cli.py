@@ -193,7 +193,7 @@ class TestPromptPromotion:
 
 class TestHygiene:
     def test_the_suite_does_not_mutate_the_repository(self) -> None:
-        """A test that writes into _prompts/ or _stages/ leaves the repo dirty.
+        """A test that writes into a system package leaves the repo dirty.
 
         This caught exactly that: the promotion tests were writing a real artifact into
         the repository's prompt tree.
@@ -201,7 +201,7 @@ class TestHygiene:
         import subprocess
 
         result = subprocess.run(
-            ["git", "status", "--porcelain", "_prompts", "_capabilities", "_workflows", "conventions"],
+            ["git", "status", "--porcelain", "shakespeare", "conventions", "docs"],
             cwd=Path(__file__).resolve().parents[1],
             capture_output=True,
             text=True,

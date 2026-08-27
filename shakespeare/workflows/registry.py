@@ -24,7 +24,7 @@ from ..goals import Goal, GoalGraph
 from ..operators.builtin import RUNTIME_ONLY
 from ..registry import OperatorRegistry
 
-WORKFLOW_ROOT = Path(__file__).resolve().parents[2] / "_workflows"
+WORKFLOW_ROOT = Path(__file__).resolve().parent
 
 
 class WorkflowRegistryError(RuntimeError):

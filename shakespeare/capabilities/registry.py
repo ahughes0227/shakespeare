@@ -15,7 +15,7 @@ from pydantic import Field
 
 from ..contracts import Contract, SemanticCard
 
-CAPABILITY_ROOT = Path(__file__).resolve().parents[2] / "_capabilities"
+CAPABILITY_ROOT = Path(__file__).resolve().parent
 
 
 class CapabilityRegistryError(RuntimeError):

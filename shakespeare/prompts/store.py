@@ -8,7 +8,10 @@ import yaml
 
 from ..contracts import PromptArtifact, content_digest
 
-PROMPT_ROOT = Path(__file__).resolve().parents[2] / "_prompts"
+#: The package root. A prompt is not a kind of file kept with other files of its kind; it
+#: belongs to the system that speaks it, so it lives in that system's directory and is
+#: found by asking which system a signature names.
+PACKAGE_ROOT = Path(__file__).resolve().parents[1]
 
 
 class PromptStoreError(RuntimeError):
@@ -17,10 +20,27 @@ class PromptStoreError(RuntimeError):
 
 class PromptStore:
     def __init__(self, root: Path | None = None) -> None:
-        self.root = root or PROMPT_ROOT
+        self.root = root or PACKAGE_ROOT
 
     def path_for(self, signature_id: str, version: str) -> Path:
-        return self.root.joinpath(*signature_id.split(".")) / f"{version}.yaml"
+        """Where a signature's artifact lives, which is inside the system that uses it.
+
+        Two owners, because there are two kinds of prompt-speaking system: the planner,
+        whose signatures are dotted (`planner.route`), and a capability, whose signature
+        is its own id.
+        """
+        return self.directory_for(signature_id) / f"{version}.yaml"
+
+    def directory_for(self, signature_id: str) -> Path:
+        """The system directory that owns a signature's artifacts."""
+        head, _, tail = signature_id.partition(".")
+        if head == "planner" and tail:
+            return self.root / "planning" / "prompts" / tail
+        flat = self.root.joinpath(*signature_id.split("."))
+        if flat.is_dir():
+            # A store rooted at a plain directory tree, which is what a test builds.
+            return flat
+        return self.root / "capabilities" / signature_id / "prompts"
 
     def load(self, signature_id: str, version: str) -> PromptArtifact:
         """Load a pinned artifact and verify it against its recorded digest.
@@ -54,7 +74,7 @@ class PromptStore:
         return path
 
     def versions(self, signature_id: str) -> tuple[str, ...]:
-        directory = self.root.joinpath(*signature_id.split("."))
+        directory = self.directory_for(signature_id)
         if not directory.is_dir():
             return ()
         return tuple(sorted(item.stem for item in directory.glob("*.yaml")))

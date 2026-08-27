@@ -1092,7 +1092,7 @@ def measurements_propose(
         proposals.append(
             (
                 memory.cost_proposal(evidence.rows, incumbent=capability.cost_per_item),
-                f"cost_per_item in _capabilities/{capability_id}/capability.yml",
+                f"cost_per_item in shakespeare/capabilities/{capability_id}/capability.yml",
             )
         )
         if evidence.set_aside:
