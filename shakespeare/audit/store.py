@@ -321,13 +321,17 @@ class AuditStore:
                 )
             ).mappings()
             gaps = [dict(row) for row in rows]
-        seen: dict[str, int] = {}
+        # One row per unmet request, not per occurrence. A backlog is read to decide what
+        # to build next, and the same request listed three times is three things to skim
+        # past rather than one thing wanted three times. The newest analysis wins, since
+        # the catalog it was judged against is the one that exists now.
+        grouped: dict[str, dict[str, Any]] = {}
         for gap in gaps:
-            seen[gap["prompt_digest"]] = seen.get(gap["prompt_digest"], 0) + 1
-            gap["requires"] = json.loads(gap["requires"])
-        for gap in gaps:
-            gap["asked"] = seen[gap["prompt_digest"]]
-        return gaps
+            digest = gap["prompt_digest"]
+            if digest not in grouped:
+                grouped[digest] = {**gap, "requires": json.loads(gap["requires"]), "asked": 0}
+            grouped[digest]["asked"] += 1
+        return list(grouped.values())
 
     def record_admission_report(self, report: AdmissionReport, *, request_id: str,
                                 package_digest: str) -> None:
