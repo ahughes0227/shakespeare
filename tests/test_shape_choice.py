@@ -16,8 +16,8 @@ from pathlib import Path
 
 from shakespeare.capabilities import CapabilityRegistry, CapabilityRunner
 from shakespeare.capabilities.runner import Organization
+from shakespeare.components.builtin import build_registry
 from shakespeare.contracts import BudgetEnvelope, Invocation, RouteDecision
-from shakespeare.operators.builtin import build_registry
 from shakespeare.planner import ScriptedGoalPlanner
 from shakespeare.runtime.artifacts import ArtifactStore
 from shakespeare.runtime.executor import Budget, Executor
@@ -214,7 +214,7 @@ class TestTheDurableShapeWorks:
 
 def _frozen() -> dict:
     """The convention as the runtime freezes it, not as the harness writes it."""
-    from shakespeare.runners import pure_transform
+    from shakespeare.components.runners import pure_transform
 
     from harness import SPEC
 
@@ -245,7 +245,7 @@ class TestTheFrozenConventionIsBinding:
         }
 
     def _spec(self) -> dict:
-        from shakespeare.runners import pure_transform
+        from shakespeare.components.runners import pure_transform
 
         return pure_transform(
             {
@@ -302,7 +302,7 @@ class TestTheFrozenConventionIsBinding:
 
     def test_the_named_goal_actually_runs_it(self) -> None:
         from shakespeare.capabilities import CapabilityRegistry
-        from shakespeare.operators.builtin import build_registry
+        from shakespeare.components.builtin import build_registry
         from shakespeare.workflows import WorkflowRegistry
 
         registry = WorkflowRegistry(

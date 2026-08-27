@@ -8,8 +8,8 @@ through its `backend` selection rather than through a dozen near-identical opera
 from __future__ import annotations
 
 from ..contracts import OperatorFamily, OperatorSpec, RiskLevel
-from ..registry import FAMILY_RUNNERS, OperatorRegistry
-from .contracts import INPUT_MODELS
+from .arguments import INPUT_MODELS
+from .registry import FAMILY_RUNNERS, OperatorRegistry
 
 #: Operators that write.  Granted to no domain: agents plan, the runtime commits.
 RUNTIME_ONLY: frozenset[str] = frozenset({"fs.stage", "fs.commit", "fs.reverse", "fs.discard"})
@@ -37,9 +37,9 @@ def _spec(
     rather than trusted: an operator missing its argument model or its declared outputs
     fails the moment the registry is built, naming what is absent.
     """
-    from ..families import allowed_features
-    from ..runners import allowlist
-    from .contracts import INPUT_MODELS, OUTPUT_KEYS
+    from .arguments import INPUT_MODELS, OUTPUT_KEYS
+    from .families import allowed_features
+    from .runners import allowlist
 
     if operation not in allowlist(family):
         raise ValueError(

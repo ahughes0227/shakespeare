@@ -17,9 +17,9 @@ from pathlib import Path
 import yaml
 
 from ..capabilities import CapabilityRegistry
+from ..components.builtin import RUNTIME_ONLY
+from ..components.registry import OperatorRegistry
 from ..contracts import Contract, SemanticCard, content_digest
-from ..operators.builtin import RUNTIME_ONLY
-from ..registry import OperatorRegistry
 from ..runtime.checks import CHECKS
 from ..runtime.compose import catalog as hydra_catalog
 from ..runtime.goals import Goal, GoalGraph

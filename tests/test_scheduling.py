@@ -17,10 +17,10 @@ from pathlib import Path
 
 from shakespeare.capabilities import CapabilityRegistry, CapabilityRunner, CapabilitySpec
 from shakespeare.capabilities.runner import Organization
+from shakespeare.components.builtin import RUNTIME_ONLY, build_registry
 from shakespeare.contracts import BudgetEnvelope, ErrorCode, Invocation
 from shakespeare.domain.planning import plan_batch
 from shakespeare.gateway import GatewayError
-from shakespeare.operators.builtin import RUNTIME_ONLY, build_registry
 from shakespeare.runtime.artifacts import ArtifactStore, Quality
 from shakespeare.runtime.executor import Budget, Executor
 from shakespeare.runtime.verifier import Verifier

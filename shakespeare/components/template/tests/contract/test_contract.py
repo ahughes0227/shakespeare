@@ -17,8 +17,8 @@ def test_manifest_is_complete():
 
 
 def test_entrypoint_matches_family_runner():
+    from shakespeare.components.registry import FAMILY_RUNNERS
     from shakespeare.contracts import OperatorFamily
-    from shakespeare.registry import FAMILY_RUNNERS
 
     manifest = _manifest()
     expected = FAMILY_RUNNERS[OperatorFamily(manifest["family"])]

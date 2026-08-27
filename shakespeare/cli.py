@@ -651,9 +651,9 @@ def operator_show(name: str) -> None:
     — including the family contract, which is what actually bounds the operator's
     behaviour.
     """
-    from . import families
-    from .operators.builtin import RUNTIME_ONLY
-    from .operators.contracts import OUTPUT_KEYS, argument_summary
+    from .components import families
+    from .components.arguments import OUTPUT_KEYS, argument_summary
+    from .components.builtin import RUNTIME_ONLY
 
     services = _services(planner=_no_model(), agents={})
     if name not in services.operators:
@@ -705,7 +705,7 @@ def operator_show(name: str) -> None:
 
 @app.command("operators")
 def operators_list() -> None:
-    from .operators.builtin import RUNTIME_ONLY
+    from .components.builtin import RUNTIME_ONLY
 
     services = _services(planner=_no_model(), agents={})
     table = Table(title="Registered operators")
@@ -1359,9 +1359,9 @@ def new_operator(
     destination: Annotated[Path, typer.Option("--to")] = Path("_operators"),
 ) -> None:
     """Render an operator package from its family template."""
+    from .components.registry import FAMILY_RUNNERS
+    from .components.runners import allowlist
     from .contracts import OperatorFamily
-    from .registry import FAMILY_RUNNERS
-    from .runners import allowlist
 
     try:
         resolved = OperatorFamily(family)
@@ -1374,7 +1374,7 @@ def new_operator(
             f"Vetted: {sorted(allowlist(resolved))}. Adding a new one is a human change "
             f"to shakespeare/runners.py."
         )
-    from .families import FamilyError, check_features
+    from .components.families import FamilyError, check_features
 
     requested = frozenset(item.strip() for item in features.split(",") if item.strip())
     try:

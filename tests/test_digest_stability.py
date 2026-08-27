@@ -30,7 +30,7 @@ import sys
 sys.path.insert(0, {root!r})
 from shakespeare.capabilities import CapabilityRegistry
 from shakespeare.workflows import WorkflowRegistry
-from shakespeare.operators.builtin import build_registry
+from shakespeare.components.builtin import build_registry
 capabilities = CapabilityRegistry()
 registry = WorkflowRegistry(capabilities=capabilities, operators=build_registry())
 print(registry.get("rename_files").digest())
@@ -70,7 +70,7 @@ class TestSetOrdering:
                 version="1.0.0",
                 description="d",
                 family=OperatorFamily.PURE_TRANSFORM,
-                entrypoint="shakespeare.runners:pure_transform",
+                entrypoint="shakespeare.components.runners:pure_transform",
                 features=features,
             )
 
@@ -110,7 +110,7 @@ class TestReplayDependsOnIt:
         recorded = result.stdout.strip()
 
         from shakespeare.capabilities import CapabilityRegistry
-        from shakespeare.operators.builtin import build_registry
+        from shakespeare.components.builtin import build_registry
         from shakespeare.workflows import WorkflowRegistry
 
         capabilities = CapabilityRegistry()

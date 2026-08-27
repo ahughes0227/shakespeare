@@ -11,11 +11,11 @@ from pathlib import Path
 import pytest
 from shakespeare.agent import FakeCapabilityAgent
 from shakespeare.capabilities import CapabilityRegistry
+from shakespeare.components.builtin import build_registry
 from shakespeare.contracts import (
     BudgetEnvelope,
     RouteDecision,
 )
-from shakespeare.operators.builtin import build_registry
 from shakespeare.planner import ScriptedGoalPlanner
 from shakespeare.runtime.audit import AuditStore
 from shakespeare.runtime.engine import Runtime

@@ -13,8 +13,8 @@ from pathlib import Path
 import pytest
 from shakespeare.capabilities import CapabilityRunner, CapabilitySpec
 from shakespeare.capabilities.runner import Organization, ScriptedCapabilityAgent
+from shakespeare.components.builtin import build_registry
 from shakespeare.contracts import BudgetEnvelope, Invocation, SemanticCard
-from shakespeare.operators.builtin import build_registry
 from shakespeare.runtime.artifacts import ArtifactStore, Quality
 from shakespeare.runtime.executor import Budget, Executor
 from shakespeare.runtime.verifier import Verifier
@@ -222,7 +222,7 @@ class TestUnusableResponses:
 
     def test_the_run_survives_and_the_capability_retries(self, tmp_path: Path) -> None:
         from shakespeare.capabilities import CapabilityRunner
-        from shakespeare.operators.builtin import build_registry
+        from shakespeare.components.builtin import build_registry
         from shakespeare.runtime.artifacts import ArtifactStore
         from shakespeare.runtime.executor import Executor
         from shakespeare.runtime.verifier import Verifier
@@ -251,7 +251,7 @@ class TestUnusableResponses:
 
     def test_the_reason_reaches_the_next_round(self, tmp_path: Path) -> None:
         from shakespeare.capabilities import CapabilityRunner
-        from shakespeare.operators.builtin import build_registry
+        from shakespeare.components.builtin import build_registry
         from shakespeare.runtime.artifacts import ArtifactStore
         from shakespeare.runtime.executor import Executor
         from shakespeare.runtime.verifier import Verifier

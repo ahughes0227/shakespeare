@@ -613,7 +613,7 @@ def _selections(composition: Composition) -> dict[str, str]:
 
 
 def _catalog_summary(capability: CapabilitySpec, config_root: str | None) -> dict[str, Any]:
-    from ..operators.contracts import argument_summary
+    from ..components.arguments import argument_summary
     from ..runtime.compose import catalog as hydra_catalog
 
     available = hydra_catalog(config_root)
@@ -725,7 +725,7 @@ def _progress_keys(capability: CapabilitySpec) -> tuple[str, ...]:
     output says nothing about whether another has done its work, and a single global
     record of "done" would let each inherit the other's progress and skip its own.
     """
-    from ..operators.contracts import OUTPUT_KEYS
+    from ..components.arguments import OUTPUT_KEYS
 
     produced = {key for name in capability.catalog for key in OUTPUT_KEYS.get(name, ())}
     return tuple(key for key in _PROGRESS_KEYS if key in produced)

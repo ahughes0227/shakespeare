@@ -6,8 +6,8 @@ from pathlib import Path
 
 import pytest
 from shakespeare.capabilities import CapabilityRegistry
+from shakespeare.components.builtin import build_registry
 from shakespeare.contracts import PromptArtifact
-from shakespeare.operators.builtin import build_registry
 from shakespeare.planner import (
     CAPABILITY_SIGNATURE,
     GOAL_SIGNATURE,

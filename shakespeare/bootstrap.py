@@ -16,11 +16,11 @@ from platformdirs import user_state_dir
 from .admission import AdmissionService
 from .agent import ModelCapabilityAgent
 from .capabilities import CapabilityRegistry
+from .components.builtin import build_registry
+from .components.registry import OperatorRegistry
 from .gateway import Gateway, LiteLLMGateway, ModelProfile, profile_from_environment
-from .operators.builtin import build_registry
 from .planner import ModelGoalPlanner
 from .prompts import PromptStore
-from .registry import OperatorRegistry
 from .runtime.audit import AuditStore
 from .runtime.engine import Runtime
 from .runtime.executor import Executor

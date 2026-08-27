@@ -13,6 +13,8 @@ from shakespeare.admission import (
     compute_risk,
     digest_tree,
 )
+from shakespeare.components.builtin import build_registry
+from shakespeare.components.registry import FAMILY_RUNNERS
 from shakespeare.contracts import (
     AdmissionChoice,
     AdmissionDisposition,
@@ -24,8 +26,6 @@ from shakespeare.contracts import (
     RequestKind,
     RiskLevel,
 )
-from shakespeare.operators.builtin import build_registry
-from shakespeare.registry import FAMILY_RUNNERS
 from shakespeare.runtime.audit import AuditStore
 
 

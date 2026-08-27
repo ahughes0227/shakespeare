@@ -18,7 +18,9 @@ from pathlib import Path
 from typing import Protocol
 from uuid import uuid4
 
-from . import families
+from .components import families
+from .components.registry import FAMILY_RUNNERS, OperatorRegistry
+from .components.runners import allowlist
 from .contracts import (
     AUTO_ADMISSIBLE_FAMILIES,
     AdmissionChoice,
@@ -36,8 +38,6 @@ from .contracts import (
     RiskLevel,
     content_digest,
 )
-from .registry import FAMILY_RUNNERS, OperatorRegistry
-from .runners import allowlist
 from .runtime.audit import AuditStore
 
 #: The four tiers a rendered package must pass before it can be admitted.

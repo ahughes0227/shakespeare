@@ -3,12 +3,12 @@ from __future__ import annotations
 import pathlib
 
 import pytest
+from shakespeare.components.builtin import BUILTIN, RUNTIME_ONLY, build_registry
+from shakespeare.components.runners import RunnerError, allowlist, pure_transform
 from shakespeare.contracts import ChangeAction, OperatorFamily
 from shakespeare.domain.extraction import Backend, extract
 from shakespeare.domain.filesystem import scan
 from shakespeare.domain.planning import AssemblyError, PlannedName, ScannedItem, assemble_plan
-from shakespeare.operators.builtin import BUILTIN, RUNTIME_ONLY, build_registry
-from shakespeare.runners import RunnerError, allowlist, pure_transform
 from shakespeare.runtime.checks import run_check
 
 
@@ -263,15 +263,15 @@ class TestDeclaredOutputs:
     """
 
     def test_every_composable_operator_declares_its_outputs(self) -> None:
-        from shakespeare.operators.builtin import RUNTIME_ONLY
-        from shakespeare.operators.contracts import OUTPUT_KEYS
+        from shakespeare.components.arguments import OUTPUT_KEYS
+        from shakespeare.components.builtin import RUNTIME_ONLY
 
         composable = {name for name in BUILTIN if name not in RUNTIME_ONLY}
         assert composable == set(OUTPUT_KEYS)
 
     def test_declared_outputs_match_what_the_runner_returns(self, tmp_path: pathlib.Path) -> None:
-        from shakespeare.operators.contracts import OUTPUT_KEYS
-        from shakespeare.runners import pure_transform, readonly_scan
+        from shakespeare.components.arguments import OUTPUT_KEYS
+        from shakespeare.components.runners import pure_transform, readonly_scan
 
         source = tmp_path / "in"
         source.mkdir()

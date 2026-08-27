@@ -186,7 +186,7 @@ class TestTheRenderRecordsWhatWasClaimed:
 
 
 def _render_template():
-    from shakespeare.runners import pure_transform
+    from shakespeare.components.runners import pure_transform
 
     def call(arguments, workspace):
         return pure_transform({**arguments, "operation": "render_template"}, workspace)

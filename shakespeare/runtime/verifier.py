@@ -10,6 +10,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from ..components.builtin import RUNTIME_ONLY
+from ..components.registry import OperatorRegistry
 from ..contracts import (
     Composition,
     DomainSpec,
@@ -19,8 +21,6 @@ from ..contracts import (
     StagePlan,
     StageSpec,
 )
-from ..operators.builtin import RUNTIME_ONLY
-from ..registry import OperatorRegistry
 from .checks import run_check
 from .compose import CompositionError, validate_parameters, validate_selections
 

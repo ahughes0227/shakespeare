@@ -16,6 +16,8 @@ from typing import Any
 
 from pydantic import ValidationError
 
+from ..components.builtin import operation_of
+from ..components.registry import OperatorRegistry
 from ..contracts import (
     BudgetEnvelope,
     BudgetUsage,
@@ -25,8 +27,6 @@ from ..contracts import (
     Invocation,
     content_digest,
 )
-from ..operators.builtin import operation_of
-from ..registry import OperatorRegistry
 from .telemetry import Tracer
 from .verifier import Denial, Verifier
 
@@ -251,7 +251,7 @@ class Executor:
                 # output back into it, mirroring the catalog's `produces` list into
                 # `bindings`. Saying only "no resolved source" left the next round to
                 # guess; naming what is actually bindable ends it in one.
-                from ..operators.contracts import OUTPUT_KEYS
+                from ..components.arguments import OUTPUT_KEYS
 
                 bindable = _bindable(arguments)
                 if source in OUTPUT_KEYS.get(invocation.operator, ()):
@@ -419,7 +419,7 @@ def _explain(
 
 def _required_of(operator: str) -> frozenset[str]:
     """Argument names an operator cannot run without."""
-    from ..operators.contracts import INPUT_MODELS
+    from ..components.arguments import INPUT_MODELS
 
     model = INPUT_MODELS.get(operator)
     if model is None:

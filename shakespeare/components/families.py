@@ -13,10 +13,10 @@ from pathlib import Path
 
 import yaml
 
-from .contracts import Contract, OperatorFamily, SemanticCard
+from ..contracts import Contract, OperatorFamily, SemanticCard
 from .registry import FAMILY_RUNNERS
 
-TEMPLATE_ROOT = Path(__file__).resolve().parents[1] / "_operator_templates"
+TEMPLATE_ROOT = Path(__file__).resolve().parent
 
 
 class FamilyError(RuntimeError):

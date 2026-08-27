@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import pytest
+from shakespeare.components.builtin import build_registry
 from shakespeare.contracts import (
     Composition,
     DomainGoal,
@@ -14,7 +15,6 @@ from shakespeare.contracts import (
     StagePlan,
     StageSpec,
 )
-from shakespeare.operators.builtin import build_registry
 from shakespeare.runtime.verifier import Denial, Verifier, unmet
 
 ACQUISITION = DomainSpec(

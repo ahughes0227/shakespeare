@@ -11,6 +11,7 @@ from pathlib import Path
 import pytest
 from shakespeare.admission import AdmissionService
 from shakespeare.capabilities.runner import Organization
+from shakespeare.components.builtin import build_registry
 from shakespeare.contracts import (
     Composition,
     Invocation,
@@ -18,7 +19,6 @@ from shakespeare.contracts import (
     OperatorFamily,
     RequestKind,
 )
-from shakespeare.operators.builtin import build_registry
 from shakespeare.runtime.verifier import Denial, Verifier
 
 from harness import INVOICES, build, rename_agent, seed_invoices, values_for

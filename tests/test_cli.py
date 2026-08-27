@@ -11,8 +11,8 @@ from pathlib import Path
 import pytest
 from shakespeare.admission import AdmissionService
 from shakespeare.cli import app
+from shakespeare.components.builtin import build_registry
 from shakespeare.contracts import OperatorFamily, OperatorRequest, RequestKind
-from shakespeare.operators.builtin import build_registry
 from shakespeare.prompts import PromptStore
 from shakespeare.runtime.audit import AuditStore
 from typer.testing import CliRunner

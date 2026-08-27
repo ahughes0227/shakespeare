@@ -11,9 +11,9 @@ from pathlib import Path
 
 import pytest
 import yaml
-from shakespeare import families
+from shakespeare.components import families
+from shakespeare.components.registry import FAMILY_RUNNERS
 from shakespeare.contracts import OperatorFamily, SemanticCard
-from shakespeare.registry import FAMILY_RUNNERS
 
 
 class TestManifests:
@@ -124,8 +124,8 @@ class TestMarkerVerification:
 class TestAdmissionEnforcesFeatures:
     def test_a_request_naming_an_undeclared_slot_escalates(self, tmp_path: Path) -> None:
         from shakespeare.admission import AdmissionService
+        from shakespeare.components.builtin import build_registry
         from shakespeare.contracts import AdmissionDisposition, OperatorRequest, RequestKind
-        from shakespeare.operators.builtin import build_registry
         from shakespeare.runtime.audit import AuditStore
 
         from test_admission import StubRenderer, passing_tests
@@ -171,7 +171,7 @@ class TestAManifestGovernsWhatShips:
         rejects a name the manifest does not declare — so a manifest omitting its own
         operations refuses every request for that family before the operation is read.
         """
-        from shakespeare.runners import allowlist
+        from shakespeare.components.runners import allowlist
 
         for family in OperatorFamily:
             undeclared = sorted(set(allowlist(family)) - families.allowed_features(family))
@@ -179,7 +179,7 @@ class TestAManifestGovernsWhatShips:
 
     def test_a_declared_name_is_either_an_operation_or_a_slot(self) -> None:
         """Naming something that is neither is how `plan_batches` survived a rename."""
-        from shakespeare.runners import allowlist
+        from shakespeare.components.runners import allowlist
 
         slots = {
             "char_limit", "depth_limit", "digest", "docx", "email", "fallback_chain",
@@ -205,7 +205,7 @@ class TestAManifestGovernsWhatShips:
     def test_a_request_naming_a_real_operation_passes_its_family_check(self) -> None:
         """The end the drift was breaking: readonly_scan and content_extract were
         unrequestable, because neither declared any operation a request could name."""
-        from shakespeare.runners import allowlist
+        from shakespeare.components.runners import allowlist
 
         for family in OperatorFamily:
             operation = sorted(allowlist(family))[0]

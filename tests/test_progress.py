@@ -11,9 +11,9 @@ from pathlib import Path
 
 from shakespeare.capabilities import CapabilityRunner, CapabilitySpec
 from shakespeare.capabilities.runner import Organization, _record_progress
+from shakespeare.components.builtin import build_registry
+from shakespeare.components.runners import pure_transform
 from shakespeare.contracts import BudgetEnvelope, Invocation
-from shakespeare.operators.builtin import build_registry
-from shakespeare.runners import pure_transform
 from shakespeare.runtime.artifacts import ArtifactStore, Quality
 from shakespeare.runtime.executor import Budget, Executor
 from shakespeare.runtime.verifier import Verifier

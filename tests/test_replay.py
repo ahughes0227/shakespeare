@@ -11,9 +11,9 @@ from pathlib import Path
 
 import pytest
 from shakespeare.capabilities import CapabilityRegistry
+from shakespeare.components.builtin import build_registry
 from shakespeare.contracts import ChangeAction
 from shakespeare.domain import mutation
-from shakespeare.operators.builtin import build_registry
 from shakespeare.runtime.audit import AuditStore
 from shakespeare.runtime.engine import Runtime
 from shakespeare.runtime.executor import Executor

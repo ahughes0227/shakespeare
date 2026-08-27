@@ -68,9 +68,12 @@ select = ["E", "F", "I", "UP", "B"]
 [tool.ruff.lint.per-file-ignores]
 # A frozen schema snapshot. Column definitions are legitimately wide, and rewrapping a
 # generated baseline makes it harder to diff against the models it froze.
-"alembic/versions/*" = ["E501"]
+"shakespeare/runtime/audit/migrations/versions/*" = ["E501"]
 
 [tool.mypy]
+# The component template's files are rendered into a package, not imported from here:
+# type-checking them in place checks a stencil rather than anything that runs.
+exclude = "shakespeare/components/template/"
 python_version = "3.12"
 strict = true
 warn_unreachable = true

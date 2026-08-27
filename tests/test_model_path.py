@@ -11,9 +11,9 @@ import pytest
 from shakespeare.agent import ModelCapabilityAgent
 from shakespeare.capabilities import CapabilityRegistry
 from shakespeare.capabilities.runner import Organization
+from shakespeare.components.builtin import build_registry
 from shakespeare.contracts import RequestContract, RouteDecision
 from shakespeare.gateway import FakeGateway, GatewayError, ModelProfile
-from shakespeare.operators.builtin import build_registry
 from shakespeare.planner import CapabilityChoice, GoalChoice, Judgment, ModelGoalPlanner
 from shakespeare.prompts import PromptStore
 from shakespeare.runtime.verifier import Denial, Verifier

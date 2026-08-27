@@ -10,9 +10,9 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from shakespeare.components.builtin import build_registry
 from shakespeare.contracts import BudgetEnvelope, Composition, DomainSpec, Invocation
 from shakespeare.domain import records
-from shakespeare.operators.builtin import build_registry
 from shakespeare.runtime.executor import Budget, Executor
 from shakespeare.runtime.verifier import Verifier
 
@@ -89,8 +89,8 @@ class TestContainment:
         assert written and all(workspace in path.parents for path in written)
 
     def test_the_family_is_the_only_writer_outside_filesystem_mutation(self) -> None:
+        from shakespeare.components.registry import WRITING_FAMILIES
         from shakespeare.contracts import OperatorFamily
-        from shakespeare.registry import WRITING_FAMILIES
 
         assert WRITING_FAMILIES == {
             OperatorFamily.FILESYSTEM_MUTATION,
@@ -99,8 +99,8 @@ class TestContainment:
 
     def test_a_writing_family_is_never_auto_admissible(self) -> None:
         """A component that writes is a human's decision, however low its computed risk."""
+        from shakespeare.components.registry import WRITING_FAMILIES
         from shakespeare.contracts import AUTO_ADMISSIBLE_FAMILIES
-        from shakespeare.registry import WRITING_FAMILIES
 
         assert not (AUTO_ADMISSIBLE_FAMILIES & WRITING_FAMILIES)
 
@@ -160,7 +160,7 @@ class TestRenderingFromTheTable:
     """
 
     def _render(self, arguments: dict, tmp_path: Path) -> dict:
-        from shakespeare.runners import pure_transform
+        from shakespeare.components.runners import pure_transform
 
         return pure_transform(
             {"operation": "render_template", **arguments}, tmp_path

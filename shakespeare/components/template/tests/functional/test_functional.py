@@ -7,7 +7,7 @@ ROOT = pathlib.Path(__file__).resolve().parents[2]
 
 
 def test_runner_operation_is_vetted():
-    from shakespeare.runners import allowlist
+    from shakespeare.components.runners import allowlist
 
     manifest = json.loads((ROOT / "operator.json").read_text())
     operations = allowlist(manifest["family"])
