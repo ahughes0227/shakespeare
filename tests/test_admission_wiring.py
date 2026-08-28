@@ -9,17 +9,17 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from shakespeare.admission import AdmissionService
-from shakespeare.capabilities.runner import Organization
-from shakespeare.components.builtin import build_registry
-from shakespeare.contracts import (
+from system.admission import AdmissionService
+from system.capabilities.runner import Organization
+from system.components.builtin import build_registry
+from system.contracts import (
     Composition,
     Invocation,
     OperatorAsk,
     OperatorFamily,
     RequestKind,
 )
-from shakespeare.runtime.verifier import Denial, Verifier
+from system.runtime.verifier import Denial, Verifier
 
 from harness import INVOICES, build, rename_agent, seed_invoices, values_for
 from test_admission import StubRenderer, passing_tests
@@ -92,8 +92,8 @@ class TestAutoAdmissionInsideARun:
         audit.close()
 
     def test_the_full_provenance_is_queryable(self, tmp_path: Path) -> None:
-        from shakespeare.runtime.audit import schema
         from sqlalchemy import select
+        from system.runtime.audit import schema
 
         runtime, request, audit = _with_ask(tmp_path, ask())
         runtime.run(request)
@@ -146,8 +146,8 @@ class TestWithoutAnAdmissionService:
         assert runtime.grants == {}
         assert "text.titlecase" not in runtime.operators
 
-        from shakespeare.runtime.audit import schema
         from sqlalchemy import select
+        from system.runtime.audit import schema
 
         with audit.engine.begin() as connection:
             recorded = connection.execute(select(schema.operator_requests)).mappings().all()
@@ -157,8 +157,8 @@ class TestWithoutAnAdmissionService:
 
 class TestGrantBounds:
     def test_a_grant_lets_the_verifier_accept_an_admitted_operator(self) -> None:
-        from shakespeare.capabilities import CapabilityRegistry
-        from shakespeare.capabilities.runner import _as_domain
+        from system.capabilities import CapabilityRegistry
+        from system.capabilities.runner import _as_domain
 
         verifier = Verifier(build_registry())
         domain = _as_domain(CapabilityRegistry().get("survey"))
@@ -172,8 +172,8 @@ class TestGrantBounds:
 
     def test_a_grant_cannot_unlock_a_mutation_operator(self) -> None:
         """Even a granted operator is refused if it writes: agents plan, the runtime commits."""
-        from shakespeare.capabilities import CapabilityRegistry
-        from shakespeare.capabilities.runner import _as_domain
+        from system.capabilities import CapabilityRegistry
+        from system.capabilities.runner import _as_domain
 
         verifier = Verifier(build_registry())
         domain = _as_domain(CapabilityRegistry().get("survey"))

@@ -5,8 +5,8 @@ from __future__ import annotations
 import pathlib
 
 import pytest
-from shakespeare.contracts import ChangeAction, ChangePlan
-from shakespeare.domain.mutation import (
+from system.contracts import ChangeAction, ChangePlan
+from system.domain.mutation import (
     MutationError,
     commit,
     discard,
@@ -14,7 +14,7 @@ from shakespeare.domain.mutation import (
     stage_plan,
     verify_tree,
 )
-from shakespeare.domain.planning import RenameEntry
+from system.domain.planning import RenameEntry
 
 
 def _tree(root: pathlib.Path) -> dict[str, str]:
@@ -185,7 +185,7 @@ class TestCommit:
         assert not output.exists()
 
     def test_unknown_operation_has_no_reversal(self) -> None:
-        from shakespeare.contracts import ReversalRecord
+        from system.contracts import ReversalRecord
 
         with pytest.raises(MutationError, match="no reversal is defined"):
             reverse(ReversalRecord(mutation_id="m", operation="invented"))

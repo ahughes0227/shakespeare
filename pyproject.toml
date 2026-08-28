@@ -38,7 +38,7 @@ dependencies = [
 optimize = ["dspy>=2.6,<4"]
 
 [project.scripts]
-shakespeare = "shakespeare.cli:app"
+shakespeare = "system.cli:app"
 
 [dependency-groups]
 dev = [
@@ -50,7 +50,7 @@ dev = [
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["shakespeare*"]
+include = ["system*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -60,7 +60,7 @@ pythonpath = ["tests"]
 [tool.ruff]
 target-version = "py312"
 line-length = 100
-src = ["shakespeare", "tests"]
+src = ["system", "tests"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
@@ -68,12 +68,12 @@ select = ["E", "F", "I", "UP", "B"]
 [tool.ruff.lint.per-file-ignores]
 # A frozen schema snapshot. Column definitions are legitimately wide, and rewrapping a
 # generated baseline makes it harder to diff against the models it froze.
-"shakespeare/runtime/audit/migrations/versions/*" = ["E501"]
+"system/runtime/audit/migrations/versions/*" = ["E501"]
 
 [tool.mypy]
 # The component template's files are rendered into a package, not imported from here:
 # type-checking them in place checks a stencil rather than anything that runs.
-exclude = "shakespeare/components/template/"
+exclude = "system/components/template/"
 python_version = "3.12"
 strict = true
 warn_unreachable = true

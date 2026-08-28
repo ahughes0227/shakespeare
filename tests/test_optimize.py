@@ -9,16 +9,16 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from shakespeare.contracts import (
+from system.contracts import (
     AdmissionChoice,
     DecidedBy,
     OptimizationRun,
     PromptArtifact,
 )
-from shakespeare.optimize import PromotionGate, PromotionOutcome, obligation_score
-from shakespeare.optimize.metric import METRIC_WEIGHTS, RunSignals, signals_from_attempt
-from shakespeare.optimize.promotion import DEFAULT_MARGIN
-from shakespeare.prompts import PromptStore
+from system.optimize import PromotionGate, PromotionOutcome, obligation_score
+from system.optimize.metric import METRIC_WEIGHTS, RunSignals, signals_from_attempt
+from system.optimize.promotion import DEFAULT_MARGIN
+from system.prompts import PromptStore
 
 
 def signals(**overrides: object) -> RunSignals:
@@ -154,7 +154,7 @@ class TestVersioning:
         self, tmp_path: Path
     ) -> None:
         """Overwriting a pinned version would change a past run's behaviour."""
-        from shakespeare.optimize.compile import Compiler
+        from system.optimize.compile import Compiler
 
         store = PromptStore(tmp_path)
         store.save(_artifact("1.0.0"))
@@ -164,7 +164,7 @@ class TestVersioning:
         assert compiler.next_version("field_resolution") == "1.2.0"
 
     def test_first_version_when_nothing_exists(self, tmp_path: Path) -> None:
-        from shakespeare.optimize.compile import Compiler
+        from system.optimize.compile import Compiler
 
         assert Compiler(store=PromptStore(tmp_path)).next_version("new.signature") == "1.0.0"
 
@@ -172,11 +172,11 @@ class TestVersioning:
 class TestOptionalDependency:
     def test_the_runtime_imports_without_dspy(self) -> None:
         """DSPy is an optional extra; nothing on the run path may need it."""
-        import shakespeare.bootstrap  # noqa: F401
-        import shakespeare.runtime  # noqa: F401
+        import system.bootstrap  # noqa: F401
+        import system.runtime  # noqa: F401
 
     def test_compiling_without_dspy_explains_how_to_install_it(self) -> None:
-        from shakespeare.optimize.compile import OptimizeError, require_dspy
+        from system.optimize.compile import OptimizeError, require_dspy
 
         try:
             require_dspy()

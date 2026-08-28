@@ -10,17 +10,17 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from shakespeare.capabilities import CapabilityRegistry
-from shakespeare.components.builtin import build_registry
-from shakespeare.contracts import ChangeAction
-from shakespeare.domain import mutation
-from shakespeare.runtime.audit import AuditStore
-from shakespeare.runtime.engine import Runtime
-from shakespeare.runtime.executor import Executor
-from shakespeare.runtime.replay import ReplayError, assert_same_workflow, journal_components
-from shakespeare.runtime.telemetry import RecordingExporter, Tracer
-from shakespeare.runtime.verifier import Verifier
-from shakespeare.workflows import WorkflowRegistry
+from system.capabilities import CapabilityRegistry
+from system.components.builtin import build_registry
+from system.contracts import ChangeAction
+from system.domain import mutation
+from system.runtime.audit import AuditStore
+from system.runtime.engine import Runtime
+from system.runtime.executor import Executor
+from system.runtime.replay import ReplayError, assert_same_workflow, journal_components
+from system.runtime.telemetry import RecordingExporter, Tracer
+from system.runtime.verifier import Verifier
+from system.workflows import WorkflowRegistry
 
 from harness import build
 
@@ -140,7 +140,7 @@ class TestApplyPhaseTwo:
 
     def test_a_source_file_changed_since_planning_is_detected(self, tmp_path: Path) -> None:
         """Applying a stale plan would rename a file based on content it no longer has."""
-        from shakespeare.cli import _verify_sources
+        from system.cli import _verify_sources
 
         runtime, request, audit, _ = build(tmp_path)
         planned = runtime.run(request, commit=False)
@@ -154,7 +154,7 @@ class TestApplyPhaseTwo:
         audit.close()
 
     def test_a_deleted_source_is_detected(self, tmp_path: Path) -> None:
-        from shakespeare.cli import _verify_sources
+        from system.cli import _verify_sources
 
         runtime, request, audit, _ = build(tmp_path)
         planned = runtime.run(request, commit=False)
@@ -269,7 +269,7 @@ class TestPreviewCommitsWhatItShowed:
         audit.close()
 
     def test_committing_without_a_plan_is_refused(self, tmp_path: Path) -> None:
-        from shakespeare.runtime.engine import RunResult
+        from system.runtime.engine import RunResult
 
         runtime, _, audit, _ = build(tmp_path)
         with pytest.raises(Exception, match="no plan to commit"):

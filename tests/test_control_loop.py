@@ -10,11 +10,11 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from shakespeare.agent import FakeCapabilityAgent
-from shakespeare.contracts import ChangeAction, Invocation, RouteDecision
-from shakespeare.planner import ScriptedGoalPlanner
-from shakespeare.runtime.artifacts import Quality
-from shakespeare.runtime.goals import GateOutcome
+from system.agent import FakeCapabilityAgent
+from system.contracts import ChangeAction, Invocation, RouteDecision
+from system.planner import ScriptedGoalPlanner
+from system.runtime.artifacts import Quality
+from system.runtime.goals import GateOutcome
 
 from harness import build, org
 
@@ -145,9 +145,9 @@ class TestGates:
 class TestTheLoopIsGeneric:
     def test_no_goal_or_capability_name_appears_in_the_driver(self) -> None:
         """The loop must not learn the names of the things it drives (§12)."""
-        import shakespeare
+        import system
 
-        root = Path(shakespeare.__file__).parent
+        root = Path(system.__file__).parent
         # Distinctive names only. "compose" is excluded deliberately: it is the Hydra
         # composition function, and a name collision would make this test lie.
         forbidden = (
@@ -317,7 +317,7 @@ class TestAttemptsAreBoundedByProgressNotACount:
         self, tmp_path: Path
     ) -> None:
         """Progress means the retry is worth paying for, whatever the attempt number."""
-        from shakespeare.runtime.control import Controller
+        from system.runtime.control import Controller
 
         seen = []
         verdict = _verdict("still_short")
@@ -358,6 +358,6 @@ def _verdict(*failed_checks: str):
 
 
 def _achievement_of(context, result):
-    from shakespeare.runtime.control import _achievement
+    from system.runtime.control import _achievement
 
     return _achievement(context, result)

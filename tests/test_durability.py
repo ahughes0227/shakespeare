@@ -9,21 +9,21 @@ import os
 from pathlib import Path
 
 import pytest
-from shakespeare.agent import FakeCapabilityAgent
-from shakespeare.capabilities import CapabilityRegistry
-from shakespeare.components.builtin import build_registry
-from shakespeare.contracts import (
+from system.agent import FakeCapabilityAgent
+from system.capabilities import CapabilityRegistry
+from system.components.builtin import build_registry
+from system.contracts import (
     BudgetEnvelope,
     RouteDecision,
 )
-from shakespeare.planner import ScriptedGoalPlanner
-from shakespeare.runtime.audit import AuditStore
-from shakespeare.runtime.engine import Runtime
-from shakespeare.runtime.executor import Budget, Executor
-from shakespeare.runtime.graph import WorkflowGraph, sqlite_checkpointer
-from shakespeare.runtime.telemetry import RecordingExporter, Tracer
-from shakespeare.runtime.verifier import Verifier
-from shakespeare.workflows import WorkflowRegistry
+from system.planner import ScriptedGoalPlanner
+from system.runtime.audit import AuditStore
+from system.runtime.engine import Runtime
+from system.runtime.executor import Budget, Executor
+from system.runtime.graph import WorkflowGraph, sqlite_checkpointer
+from system.runtime.telemetry import RecordingExporter, Tracer
+from system.runtime.verifier import Verifier
+from system.workflows import WorkflowRegistry
 
 from harness import INVOICES, build, rename_agent, seed_invoices, values_for
 
@@ -68,7 +68,7 @@ class TestDurability:
         connection, so nothing but the SQLite file carries the run forward — which is what
         surviving a killed process actually means.
         """
-        from shakespeare.runtime.graph import run_with_graph
+        from system.runtime.graph import run_with_graph
 
         runtime, request, audit, _ = build(tmp_path)
         checkpoint = tmp_path / "checkpoints.sqlite3"
@@ -104,7 +104,7 @@ class TestDurability:
         committing something it cannot account for.
         """
         from langgraph.types import Command
-        from shakespeare.runtime.graph import run_with_graph
+        from system.runtime.graph import run_with_graph
 
         runtime, request, audit, _ = build(tmp_path)
         checkpoint = tmp_path / "cp.sqlite3"
@@ -129,9 +129,9 @@ class TestDurability:
         self, tmp_path: Path
     ) -> None:
         """A suspended run must leave completed facts only, never half-written ones."""
-        from shakespeare.runtime.audit import schema
-        from shakespeare.runtime.graph import run_with_graph
         from sqlalchemy import select
+        from system.runtime.audit import schema
+        from system.runtime.graph import run_with_graph
 
         runtime, request, audit, _ = build(tmp_path)
         with sqlite_checkpointer(tmp_path / "cp.sqlite3") as saver:
@@ -193,7 +193,7 @@ class TestUnsatisfiableGoal:
     def test_a_goal_whose_evidence_never_arrives_aborts_cleanly(
         self, tmp_path: Path
     ) -> None:
-        from shakespeare.capabilities.runner import Organization
+        from system.capabilities.runner import Organization
 
         agent = FakeCapabilityAgent()
         agent.queue("survey", Organization(intent="produce nothing", sufficient=True))
@@ -206,8 +206,8 @@ class TestUnsatisfiableGoal:
         audit.close()
 
     def test_the_gate_says_what_is_missing(self, tmp_path: Path) -> None:
-        from shakespeare.capabilities.runner import Organization
-        from shakespeare.runtime.goals import GateOutcome
+        from system.capabilities.runner import Organization
+        from system.runtime.goals import GateOutcome
 
         agent = FakeCapabilityAgent()
         agent.queue("survey", Organization(intent="produce nothing", sufficient=True))
@@ -220,7 +220,7 @@ class TestUnsatisfiableGoal:
         audit.close()
 
     def test_a_goal_is_retried_before_the_run_gives_up(self, tmp_path: Path) -> None:
-        from shakespeare.capabilities.runner import Organization
+        from system.capabilities.runner import Organization
 
         agent = FakeCapabilityAgent()
         agent.queue("survey", Organization(intent="produce nothing", sufficient=True))
@@ -235,7 +235,7 @@ class TestUnsatisfiableGoal:
         self, tmp_path: Path
     ) -> None:
         """Repeating an attempt that changed nothing is spending money on a coin flip."""
-        from shakespeare.capabilities.runner import Organization
+        from system.capabilities.runner import Organization
 
         agent = FakeCapabilityAgent()
         agent.queue("survey", Organization(intent="produce nothing", sufficient=True))
@@ -260,8 +260,8 @@ class TestLiveSmoke:
     """
 
     def test_a_real_model_produces_a_balanced_plan(self, tmp_path: Path) -> None:
-        from shakespeare.bootstrap import build_runtime
-        from shakespeare.contracts import RequestContract
+        from system.bootstrap import build_runtime
+        from system.contracts import RequestContract
 
         from fixtures.build import build_tree, cleanup
 

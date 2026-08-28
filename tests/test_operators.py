@@ -3,13 +3,13 @@ from __future__ import annotations
 import pathlib
 
 import pytest
-from shakespeare.components.builtin import BUILTIN, RUNTIME_ONLY, build_registry
-from shakespeare.components.runners import RunnerError, allowlist, pure_transform
-from shakespeare.contracts import ChangeAction, OperatorFamily
-from shakespeare.domain.extraction import Backend, extract
-from shakespeare.domain.filesystem import scan
-from shakespeare.domain.planning import AssemblyError, PlannedName, ScannedItem, assemble_plan
-from shakespeare.runtime.checks import run_check
+from system.components.builtin import BUILTIN, RUNTIME_ONLY, build_registry
+from system.components.runners import RunnerError, allowlist, pure_transform
+from system.contracts import ChangeAction, OperatorFamily
+from system.domain.extraction import Backend, extract
+from system.domain.filesystem import scan
+from system.domain.planning import AssemblyError, PlannedName, ScannedItem, assemble_plan
+from system.runtime.checks import run_check
 
 
 class TestFamilyDiscipline:
@@ -203,7 +203,7 @@ class TestObligations:
         assert not result.passed
 
     def test_spec_frozen_compares_digests(self) -> None:
-        from shakespeare.contracts import content_digest
+        from system.contracts import content_digest
 
         spec = {"template": "{vendor}"}
         assert run_check("o", "spec_frozen", {"spec": spec, "digest": content_digest(spec)}).passed
@@ -249,7 +249,7 @@ class TestObligations:
         assert result.passed
 
     def test_unknown_check_is_refused(self) -> None:
-        from shakespeare.runtime.checks import CheckError
+        from system.runtime.checks import CheckError
 
         with pytest.raises(CheckError, match="unknown obligation check"):
             run_check("o", "rm -rf /", {})
@@ -263,15 +263,15 @@ class TestDeclaredOutputs:
     """
 
     def test_every_composable_operator_declares_its_outputs(self) -> None:
-        from shakespeare.components.arguments import OUTPUT_KEYS
-        from shakespeare.components.builtin import RUNTIME_ONLY
+        from system.components.arguments import OUTPUT_KEYS
+        from system.components.builtin import RUNTIME_ONLY
 
         composable = {name for name in BUILTIN if name not in RUNTIME_ONLY}
         assert composable == set(OUTPUT_KEYS)
 
     def test_declared_outputs_match_what_the_runner_returns(self, tmp_path: pathlib.Path) -> None:
-        from shakespeare.components.arguments import OUTPUT_KEYS
-        from shakespeare.components.runners import pure_transform, readonly_scan
+        from system.components.arguments import OUTPUT_KEYS
+        from system.components.runners import pure_transform, readonly_scan
 
         source = tmp_path / "in"
         source.mkdir()

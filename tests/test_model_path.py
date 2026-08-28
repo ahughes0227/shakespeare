@@ -8,16 +8,16 @@ build, and responses parse against their contracts.
 from __future__ import annotations
 
 import pytest
-from shakespeare.agent import ModelCapabilityAgent
-from shakespeare.capabilities import CapabilityRegistry
-from shakespeare.capabilities.runner import Organization
-from shakespeare.components.builtin import build_registry
-from shakespeare.contracts import RequestContract, RouteDecision
-from shakespeare.gateway import FakeGateway, GatewayError, ModelProfile
-from shakespeare.planner import CapabilityChoice, GoalChoice, Judgment, ModelGoalPlanner
-from shakespeare.prompts import PromptStore
-from shakespeare.runtime.verifier import Denial, Verifier
-from shakespeare.workflows import WorkflowRegistry
+from system.agent import ModelCapabilityAgent
+from system.capabilities import CapabilityRegistry
+from system.capabilities.runner import Organization
+from system.components.builtin import build_registry
+from system.contracts import RequestContract, RouteDecision
+from system.gateway import FakeGateway, GatewayError, ModelProfile
+from system.planner import CapabilityChoice, GoalChoice, Judgment, ModelGoalPlanner
+from system.prompts import PromptStore
+from system.runtime.verifier import Denial, Verifier
+from system.workflows import WorkflowRegistry
 
 PROFILE = ModelProfile(profile_id="test", model="openrouter/openai/gpt-5-mini")
 
@@ -170,8 +170,8 @@ class TestCapabilityAgentPath:
         self, gateway: FakeGateway
     ) -> None:
         """The prompt is guidance; the verifier is the control."""
-        from shakespeare.capabilities.runner import _as_domain
-        from shakespeare.contracts import Composition
+        from system.capabilities.runner import _as_domain
+        from system.contracts import Composition
 
         gateway.queue(
             Organization,
@@ -190,7 +190,7 @@ class TestCapabilityAgentPath:
 
 class TestWiring:
     def test_bootstrap_assembles_without_a_network(self, tmp_path) -> None:
-        from shakespeare.bootstrap import build_runtime
+        from system.bootstrap import build_runtime
 
         services = build_runtime(
             state_root=tmp_path, gateway=FakeGateway(), profile=PROFILE

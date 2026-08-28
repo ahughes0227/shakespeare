@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 import yaml
-from shakespeare.canary import (
+from system.canary import (
     CanaryCase,
     CanaryError,
     CanaryResult,
@@ -20,9 +20,9 @@ from shakespeare.canary import (
     record,
     run_case,
 )
-from shakespeare.cli import app
-from shakespeare.contracts import ChangeAction, ChangePlan
-from shakespeare.domain.planning import RenameEntry
+from system.cli import app
+from system.contracts import ChangeAction, ChangePlan
+from system.domain.planning import RenameEntry
 from typer.testing import CliRunner
 
 from harness import INVOICES, build, seed_invoices

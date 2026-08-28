@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from shakespeare.admission import (
+from system.admission import (
     TEST_TIERS,
     AdmissionError,
     AdmissionService,
@@ -13,9 +13,9 @@ from shakespeare.admission import (
     compute_risk,
     digest_tree,
 )
-from shakespeare.components.builtin import build_registry
-from shakespeare.components.registry import FAMILY_RUNNERS
-from shakespeare.contracts import (
+from system.components.builtin import build_registry
+from system.components.registry import FAMILY_RUNNERS
+from system.contracts import (
     AdmissionChoice,
     AdmissionDisposition,
     DecidedBy,
@@ -26,7 +26,7 @@ from shakespeare.contracts import (
     RequestKind,
     RiskLevel,
 )
-from shakespeare.runtime.audit import AuditStore
+from system.runtime.audit import AuditStore
 
 
 class StubRenderer:
@@ -230,8 +230,8 @@ class TestProvenance:
     def test_request_report_and_decision_are_all_recorded(
         self, service: AdmissionService
     ) -> None:
-        from shakespeare.runtime.audit import schema
         from sqlalchemy import select
+        from system.runtime.audit import schema
 
         report, candidate = service.evaluate(request_for())
         service.decide(

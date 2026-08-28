@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import sqlalchemy as sa
 from alembic import op
-from shakespeare.runtime.audit import schema
+from system.runtime.audit import schema
 
 revision = "0003_measurements"
 down_revision = "0002_plan_fingerprint"

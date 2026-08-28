@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import pytest
-from shakespeare.contracts import (
+from sqlalchemy import text
+from sqlalchemy.exc import IntegrityError
+from system.contracts import (
     Composition,
     DomainGoal,
     Invocation,
@@ -11,10 +13,8 @@ from shakespeare.contracts import (
     StageVerdict,
     utc_now,
 )
-from shakespeare.runtime.audit import AuditStore
-from shakespeare.runtime.audit.schema import metadata
-from sqlalchemy import text
-from sqlalchemy.exc import IntegrityError
+from system.runtime.audit import AuditStore
+from system.runtime.audit.schema import metadata
 
 
 def _seed_run(store: AuditStore, run_id: str = "r1") -> str:

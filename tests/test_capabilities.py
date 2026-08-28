@@ -11,13 +11,13 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from shakespeare.capabilities import CapabilityRunner, CapabilitySpec
-from shakespeare.capabilities.runner import Organization, ScriptedCapabilityAgent
-from shakespeare.components.builtin import build_registry
-from shakespeare.contracts import BudgetEnvelope, Invocation, SemanticCard
-from shakespeare.runtime.artifacts import ArtifactStore, Quality
-from shakespeare.runtime.executor import Budget, Executor
-from shakespeare.runtime.verifier import Verifier
+from system.capabilities import CapabilityRunner, CapabilitySpec
+from system.capabilities.runner import Organization, ScriptedCapabilityAgent
+from system.components.builtin import build_registry
+from system.contracts import BudgetEnvelope, Invocation, SemanticCard
+from system.runtime.artifacts import ArtifactStore, Quality
+from system.runtime.executor import Budget, Executor
+from system.runtime.verifier import Verifier
 
 SURVEY = CapabilitySpec(
     id="survey",
@@ -209,8 +209,8 @@ class TestUnusableResponses:
             self.seen_prior: list[list[dict]] = []
 
         def organize(self, *, capability, request, artifacts, context, prior, catalog_summary):
-            from shakespeare.contracts import ErrorCode
-            from shakespeare.gateway import GatewayError
+            from system.contracts import ErrorCode
+            from system.gateway import GatewayError
 
             self.calls += 1
             self.seen_prior.append(prior)
@@ -221,11 +221,11 @@ class TestUnusableResponses:
             return self.then, None
 
     def test_the_run_survives_and_the_capability_retries(self, tmp_path: Path) -> None:
-        from shakespeare.capabilities import CapabilityRunner
-        from shakespeare.components.builtin import build_registry
-        from shakespeare.runtime.artifacts import ArtifactStore
-        from shakespeare.runtime.executor import Executor
-        from shakespeare.runtime.verifier import Verifier
+        from system.capabilities import CapabilityRunner
+        from system.components.builtin import build_registry
+        from system.runtime.artifacts import ArtifactStore
+        from system.runtime.executor import Executor
+        from system.runtime.verifier import Verifier
 
         source = tmp_path / "in"
         source.mkdir()
@@ -250,11 +250,11 @@ class TestUnusableResponses:
         assert outcome.rounds[0].denial is not None
 
     def test_the_reason_reaches_the_next_round(self, tmp_path: Path) -> None:
-        from shakespeare.capabilities import CapabilityRunner
-        from shakespeare.components.builtin import build_registry
-        from shakespeare.runtime.artifacts import ArtifactStore
-        from shakespeare.runtime.executor import Executor
-        from shakespeare.runtime.verifier import Verifier
+        from system.capabilities import CapabilityRunner
+        from system.components.builtin import build_registry
+        from system.runtime.artifacts import ArtifactStore
+        from system.runtime.executor import Executor
+        from system.runtime.verifier import Verifier
 
         source = tmp_path / "in"
         source.mkdir()

@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import sqlalchemy as sa
 from alembic import op
-from shakespeare.runtime.audit import schema
+from system.runtime.audit import schema
 
 revision = "0001_baseline"
 down_revision = None

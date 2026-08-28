@@ -5,17 +5,17 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from shakespeare.capabilities import CapabilityRegistry
-from shakespeare.components.builtin import build_registry
-from shakespeare.contracts import PromptArtifact
-from shakespeare.planner import (
+from system.capabilities import CapabilityRegistry
+from system.components.builtin import build_registry
+from system.contracts import PromptArtifact
+from system.planner import (
     CAPABILITY_SIGNATURE,
     GOAL_SIGNATURE,
     JUDGE_SIGNATURE,
     ROUTE_SIGNATURE,
 )
-from shakespeare.prompts import PromptStore, PromptStoreError
-from shakespeare.workflows import WorkflowRegistry
+from system.prompts import PromptStore, PromptStoreError
+from system.workflows import WorkflowRegistry
 
 
 class TestCompleteness:

@@ -4,10 +4,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from shakespeare.components.builtin import build_registry
-from shakespeare.contracts import BudgetEnvelope, Composition, DomainSpec, Invocation
-from shakespeare.runtime.executor import Budget, Executor
-from shakespeare.runtime.verifier import Verifier
+from system.components.builtin import build_registry
+from system.contracts import BudgetEnvelope, Composition, DomainSpec, Invocation
+from system.runtime.executor import Budget, Executor
+from system.runtime.verifier import Verifier
 
 
 class TestBindingFailuresTeach:

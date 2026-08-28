@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from shakespeare.contracts import Invocation
+from system.contracts import Invocation
 
 from harness import SPEC, build, org, rename_agent, seed_invoices, values_for
 
@@ -124,9 +124,9 @@ class TestPathIndependence:
         assert _plan_via(tmp_path / "b", _staged)[0] == expected
 
     def test_the_loop_privileges_no_route(self) -> None:
-        import shakespeare
+        import system
 
-        root = Path(shakespeare.__file__).parent
+        root = Path(system.__file__).parent
         for module in ("runtime/control.py", "runtime/engine.py", "runtime/gating.py"):
             source = (root / module).read_text()
             for component in ("doc.extract", "name.render", "plan.assemble", "auto_chain"):

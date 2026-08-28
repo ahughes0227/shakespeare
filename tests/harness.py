@@ -9,19 +9,19 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from shakespeare.agent import FakeCapabilityAgent
-from shakespeare.capabilities import CapabilityRegistry
-from shakespeare.capabilities.runner import Organization
-from shakespeare.components.builtin import build_registry
-from shakespeare.contracts import Invocation, RequestContract, RouteDecision, SemanticCard
-from shakespeare.planner import ScriptedGoalPlanner
-from shakespeare.runtime.artifacts import Quality
-from shakespeare.runtime.audit import AuditStore
-from shakespeare.runtime.engine import Runtime
-from shakespeare.runtime.executor import Executor
-from shakespeare.runtime.telemetry import RecordingExporter, Tracer
-from shakespeare.runtime.verifier import Verifier
-from shakespeare.workflows import WorkflowRegistry
+from system.agent import FakeCapabilityAgent
+from system.capabilities import CapabilityRegistry
+from system.capabilities.runner import Organization
+from system.components.builtin import build_registry
+from system.contracts import Invocation, RequestContract, RouteDecision, SemanticCard
+from system.planner import ScriptedGoalPlanner
+from system.runtime.artifacts import Quality
+from system.runtime.audit import AuditStore
+from system.runtime.engine import Runtime
+from system.runtime.executor import Executor
+from system.runtime.telemetry import RecordingExporter, Tracer
+from system.runtime.verifier import Verifier
+from system.workflows import WorkflowRegistry
 
 INVOICES: dict[str, tuple[str, str, str, str]] = {
     "2024/q1/scan001.pdf": ("ACME Corporation", "INV-99812", "PO-44117", "2024-01-15"),
@@ -66,7 +66,7 @@ def values_for(
 
     Item ids are content-addressed, so these must be built after the tree is seeded.
     """
-    from shakespeare.domain.filesystem import scan
+    from system.domain.filesystem import scan
 
     contents = contents or INVOICES
     resolved: list[dict[str, Any]] = []

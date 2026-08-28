@@ -120,7 +120,7 @@ registered, config groups must exist, and no domain catalog may contain an opera
 writes.
 
 A requested operator can select vetted behaviour and configure it. **New behaviour is a
-human change** to the allowlists in `shakespeare/runners.py`; a generated package
+human change** to the allowlists in `system/runners.py`; a generated package
 contains no callable, which is what makes it safe for a subagent to ask for one.
 
 ## Telemetry

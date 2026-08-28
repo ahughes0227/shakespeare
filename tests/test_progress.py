@@ -9,14 +9,14 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from shakespeare.capabilities import CapabilityRunner, CapabilitySpec
-from shakespeare.capabilities.runner import Organization, _record_progress
-from shakespeare.components.builtin import build_registry
-from shakespeare.components.runners import pure_transform
-from shakespeare.contracts import BudgetEnvelope, Invocation
-from shakespeare.runtime.artifacts import ArtifactStore, Quality
-from shakespeare.runtime.executor import Budget, Executor
-from shakespeare.runtime.verifier import Verifier
+from system.capabilities import CapabilityRunner, CapabilitySpec
+from system.capabilities.runner import Organization, _record_progress
+from system.components.builtin import build_registry
+from system.components.runners import pure_transform
+from system.contracts import BudgetEnvelope, Invocation
+from system.runtime.artifacts import ArtifactStore, Quality
+from system.runtime.executor import Budget, Executor
+from system.runtime.verifier import Verifier
 
 SLICER = CapabilitySpec(
     id="slicer",
@@ -51,7 +51,7 @@ class TestProgressRecord:
         assert working["_completed"] == ["q"]
 
     def test_it_stays_out_of_prompts(self) -> None:
-        from shakespeare.capabilities.runner import _summarise
+        from system.capabilities.runner import _summarise
 
         assert "_completed" not in _summarise({"_completed": ["a"], "items": []})
 

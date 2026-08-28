@@ -15,15 +15,15 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from shakespeare.capabilities import CapabilityRegistry, CapabilityRunner, CapabilitySpec
-from shakespeare.capabilities.runner import Organization
-from shakespeare.components.builtin import RUNTIME_ONLY, build_registry
-from shakespeare.contracts import BudgetEnvelope, ErrorCode, Invocation
-from shakespeare.domain.planning import plan_batch
-from shakespeare.gateway import GatewayError
-from shakespeare.runtime.artifacts import ArtifactStore, Quality
-from shakespeare.runtime.executor import Budget, Executor
-from shakespeare.runtime.verifier import Verifier
+from system.capabilities import CapabilityRegistry, CapabilityRunner, CapabilitySpec
+from system.capabilities.runner import Organization
+from system.components.builtin import RUNTIME_ONLY, build_registry
+from system.contracts import BudgetEnvelope, ErrorCode, Invocation
+from system.domain.planning import plan_batch
+from system.gateway import GatewayError
+from system.runtime.artifacts import ArtifactStore, Quality
+from system.runtime.executor import Budget, Executor
+from system.runtime.verifier import Verifier
 
 DIVISIBLE = CapabilitySpec(
     id="divisible",

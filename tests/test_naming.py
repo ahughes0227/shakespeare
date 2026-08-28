@@ -9,7 +9,7 @@ from __future__ import annotations
 import random
 
 import pytest
-from shakespeare.domain.naming import (
+from system.domain.naming import (
     Candidate,
     CasePolicy,
     CollisionPolicy,

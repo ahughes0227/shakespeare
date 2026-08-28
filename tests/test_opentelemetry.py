@@ -14,7 +14,7 @@ from opentelemetry import trace
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
-from shakespeare.runtime.telemetry import OpenTelemetryExporter, Tracer
+from system.runtime.telemetry import OpenTelemetryExporter, Tracer
 
 from harness import build
 
@@ -35,23 +35,23 @@ def collected(monkeypatch):
 class TestActivation:
     def test_a_collector_endpoint_is_enough_to_activate_it(self, monkeypatch) -> None:
         """The standard variable, so a collector already running picks this up."""
-        from shakespeare.bootstrap import exporters
+        from system.bootstrap import exporters
 
         monkeypatch.setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:4318")
         monkeypatch.delenv("LANGSMITH_PROJECT", raising=False)
         assert any(isinstance(item, OpenTelemetryExporter) for item in exporters())
 
     def test_nothing_is_wired_without_configuration(self, monkeypatch) -> None:
-        from shakespeare.bootstrap import exporters
-        from shakespeare.runtime.telemetry import NullExporter
+        from system.bootstrap import exporters
+        from system.runtime.telemetry import NullExporter
 
         for name in ("OTEL_EXPORTER_OTLP_ENDPOINT", "LANGSMITH_PROJECT", "LANGSMITH_API_KEY"):
             monkeypatch.delenv(name, raising=False)
         assert all(isinstance(item, NullExporter) for item in exporters())
 
     def test_both_backends_can_run_together(self, monkeypatch) -> None:
-        from shakespeare.bootstrap import exporters
-        from shakespeare.runtime.telemetry import LangSmithExporter
+        from system.bootstrap import exporters
+        from system.runtime.telemetry import LangSmithExporter
 
         monkeypatch.setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:4318")
         monkeypatch.setenv("LANGSMITH_PROJECT", "shakespeare")
@@ -73,7 +73,7 @@ class TestSpanShape:
 
     def test_a_failure_marks_the_span(self, collected) -> None:
         from opentelemetry.trace import StatusCode
-        from shakespeare.contracts import ErrorCode
+        from system.contracts import ErrorCode
 
         memory, exporter = collected
         tracer = Tracer("run-1", [exporter])
@@ -143,10 +143,10 @@ class TestDiagnosis:
     """
 
     def _stalled(self, tmp_path: Path, collected):
-        from shakespeare.capabilities.runner import Organization
-        from shakespeare.contracts import Invocation
-        from shakespeare.runtime.artifacts import Quality
-        from shakespeare.runtime.telemetry import Tracer
+        from system.capabilities.runner import Organization
+        from system.contracts import Invocation
+        from system.runtime.artifacts import Quality
+        from system.runtime.telemetry import Tracer
 
         from harness import rename_agent, seed_invoices, values_for
 
@@ -208,9 +208,9 @@ class TestDiagnosis:
     def test_a_gate_records_its_outcome_and_what_was_missing(
         self, collected, tmp_path: Path
     ) -> None:
-        from shakespeare.agent import FakeCapabilityAgent
-        from shakespeare.capabilities.runner import Organization
-        from shakespeare.runtime.telemetry import Tracer
+        from system.agent import FakeCapabilityAgent
+        from system.capabilities.runner import Organization
+        from system.runtime.telemetry import Tracer
 
         memory, exporter = collected
         agent = FakeCapabilityAgent()
@@ -226,14 +226,14 @@ class TestDiagnosis:
 
     def test_model_calls_are_attributable(self, collected, tmp_path: Path) -> None:
         """Cost and prompt version per call, so a regression can be traced to a promotion."""
-        from shakespeare.contracts import RouteDecision
-        from shakespeare.gateway import FakeGateway, ModelProfile
-        from shakespeare.planner import ModelGoalPlanner
-        from shakespeare.prompts import PromptStore
-        from shakespeare.runtime.telemetry import Tracer
+        from system.contracts import RouteDecision
+        from system.gateway import FakeGateway, ModelProfile
+        from system.planner import ModelGoalPlanner
+        from system.prompts import PromptStore
+        from system.runtime.telemetry import Tracer
 
         memory, exporter = collected
-        from shakespeare.planner import CapabilityChoice, GoalChoice, Judgment
+        from system.planner import CapabilityChoice, GoalChoice, Judgment
 
         judgment = {"satisfied": True, "rationale": "sufficient"}
         gateway = (
@@ -279,10 +279,10 @@ class TestSurvivingAKill:
     def test_a_round_span_closes_before_its_goal_does(
         self, collected, tmp_path: Path
     ) -> None:
-        from shakespeare.capabilities.runner import Organization
-        from shakespeare.contracts import Invocation
-        from shakespeare.runtime.artifacts import Quality
-        from shakespeare.runtime.telemetry import Tracer
+        from system.capabilities.runner import Organization
+        from system.contracts import Invocation
+        from system.runtime.artifacts import Quality
+        from system.runtime.telemetry import Tracer
 
         from harness import rename_agent, seed_invoices, values_for
 
@@ -324,10 +324,10 @@ class TestSurvivingAKill:
         self, collected, tmp_path: Path
     ) -> None:
         """The gap spans fill: a goal still in flight is absent from the audit log."""
-        from shakespeare.agent import FakeCapabilityAgent
-        from shakespeare.capabilities.runner import Organization
-        from shakespeare.runtime.audit import schema
         from sqlalchemy import select
+        from system.agent import FakeCapabilityAgent
+        from system.capabilities.runner import Organization
+        from system.runtime.audit import schema
 
         agent = FakeCapabilityAgent()
         agent.queue("survey", Organization(intent="never publishes", sufficient=True))

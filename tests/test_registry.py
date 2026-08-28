@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import pytest
 from pydantic import BaseModel, ValidationError
-from shakespeare.components.registry import FAMILY_RUNNERS, OperatorRegistry, RegistryError
-from shakespeare.contracts import OperatorFamily, OperatorSpec
+from system.components.registry import FAMILY_RUNNERS, OperatorRegistry, RegistryError
+from system.contracts import OperatorFamily, OperatorSpec
 
 
 def spec(name: str, family: OperatorFamily = OperatorFamily.PURE_TRANSFORM, **kwargs: object):

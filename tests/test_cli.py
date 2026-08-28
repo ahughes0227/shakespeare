@@ -9,12 +9,12 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from shakespeare.admission import AdmissionService
-from shakespeare.cli import app
-from shakespeare.components.builtin import build_registry
-from shakespeare.contracts import OperatorFamily, OperatorRequest, RequestKind
-from shakespeare.prompts import PromptStore
-from shakespeare.runtime.audit import AuditStore
+from system.admission import AdmissionService
+from system.cli import app
+from system.components.builtin import build_registry
+from system.contracts import OperatorFamily, OperatorRequest, RequestKind
+from system.prompts import PromptStore
+from system.runtime.audit import AuditStore
 from typer.testing import CliRunner
 
 runner = CliRunner()
@@ -139,7 +139,7 @@ class TestRequests:
 class TestPromptPromotion:
     def _artifacts(self, tmp_path: Path) -> Path:
         """Write into a temporary root: a test must never mutate the repo's prompts."""
-        from shakespeare.contracts import PromptArtifact
+        from system.contracts import PromptArtifact
 
         root = tmp_path / "prompts"
         store = PromptStore(root)

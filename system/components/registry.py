@@ -17,11 +17,11 @@ from ..contracts import OperatorFamily, OperatorSpec
 #: The one entrypoint per family.  Registration rejects anything else, which is what makes
 #: a declarative operator package unable to smuggle in executable behaviour.
 FAMILY_RUNNERS: dict[OperatorFamily, str] = {
-    OperatorFamily.READONLY_SCAN: "shakespeare.components.runners:readonly_scan",
-    OperatorFamily.CONTENT_EXTRACT: "shakespeare.components.runners:content_extract",
-    OperatorFamily.PURE_TRANSFORM: "shakespeare.components.runners:pure_transform",
-    OperatorFamily.RECORD_STORE: "shakespeare.components.runners:record_store",
-    OperatorFamily.FILESYSTEM_MUTATION: "shakespeare.components.runners:filesystem_mutation",
+    OperatorFamily.READONLY_SCAN: "system.components.runners:readonly_scan",
+    OperatorFamily.CONTENT_EXTRACT: "system.components.runners:content_extract",
+    OperatorFamily.PURE_TRANSFORM: "system.components.runners:pure_transform",
+    OperatorFamily.RECORD_STORE: "system.components.runners:record_store",
+    OperatorFamily.FILESYSTEM_MUTATION: "system.components.runners:filesystem_mutation",
 }
 
 #: Families whose components may declare writes. Their containment differs and so does

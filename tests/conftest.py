@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from shakespeare.runtime.audit import AuditStore
+from system.runtime.audit import AuditStore
 
 
 @pytest.fixture

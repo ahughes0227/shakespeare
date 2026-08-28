@@ -13,21 +13,21 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from shakespeare.agent import ModelCapabilityAgent
-from shakespeare.capabilities import CapabilityRegistry
-from shakespeare.capabilities.runner import Organization
-from shakespeare.components.builtin import build_registry
-from shakespeare.contracts import ChangeAction, RequestContract, RouteDecision
-from shakespeare.domain.filesystem import scan
-from shakespeare.gateway import FakeGateway, ModelProfile
-from shakespeare.planner import CapabilityChoice, GoalChoice, Judgment, ModelGoalPlanner
-from shakespeare.prompts import PromptStore
-from shakespeare.runtime.audit import AuditStore
-from shakespeare.runtime.engine import Runtime
-from shakespeare.runtime.executor import Executor
-from shakespeare.runtime.telemetry import RecordingExporter, Tracer
-from shakespeare.runtime.verifier import Verifier
-from shakespeare.workflows import WorkflowRegistry
+from system.agent import ModelCapabilityAgent
+from system.capabilities import CapabilityRegistry
+from system.capabilities.runner import Organization
+from system.components.builtin import build_registry
+from system.contracts import ChangeAction, RequestContract, RouteDecision
+from system.domain.filesystem import scan
+from system.gateway import FakeGateway, ModelProfile
+from system.planner import CapabilityChoice, GoalChoice, Judgment, ModelGoalPlanner
+from system.prompts import PromptStore
+from system.runtime.audit import AuditStore
+from system.runtime.engine import Runtime
+from system.runtime.executor import Executor
+from system.runtime.telemetry import RecordingExporter, Tracer
+from system.runtime.verifier import Verifier
+from system.workflows import WorkflowRegistry
 
 PROFILE = ModelProfile(profile_id="scripted", model="openrouter/openai/gpt-5-mini")
 

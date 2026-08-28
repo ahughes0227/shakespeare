@@ -14,14 +14,14 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from shakespeare.capabilities import CapabilityRegistry, CapabilityRunner
-from shakespeare.capabilities.runner import Organization
-from shakespeare.components.builtin import build_registry
-from shakespeare.contracts import BudgetEnvelope, Invocation, RouteDecision
-from shakespeare.planner import ScriptedGoalPlanner
-from shakespeare.runtime.artifacts import ArtifactStore
-from shakespeare.runtime.executor import Budget, Executor
-from shakespeare.runtime.verifier import Verifier
+from system.capabilities import CapabilityRegistry, CapabilityRunner
+from system.capabilities.runner import Organization
+from system.components.builtin import build_registry
+from system.contracts import BudgetEnvelope, Invocation, RouteDecision
+from system.planner import ScriptedGoalPlanner
+from system.runtime.artifacts import ArtifactStore
+from system.runtime.executor import Budget, Executor
+from system.runtime.verifier import Verifier
 
 from harness import build, org, seed_invoices, values_for
 
@@ -79,7 +79,7 @@ class TestAnImpedimentEndsTheRun:
 
     def test_a_capability_can_raise_one_too(self, tmp_path: Path) -> None:
         """The capability sees the mechanism; the planner sees the shape. Either may object."""
-        from shakespeare.agent import FakeCapabilityAgent
+        from system.agent import FakeCapabilityAgent
 
         agents = {"*": FakeCapabilityAgent()}
         agents["*"].queue(
@@ -201,7 +201,7 @@ class TestTheDurableShapeWorks:
 
     def test_the_table_outlives_the_response_that_filled_it(self, tmp_path: Path) -> None:
         """A batch that fails costs itself, not the run's progress."""
-        from shakespeare.domain import records
+        from system.domain import records
 
         workspace = tmp_path / "work"
         records.append(
@@ -214,7 +214,7 @@ class TestTheDurableShapeWorks:
 
 def _frozen() -> dict:
     """The convention as the runtime freezes it, not as the harness writes it."""
-    from shakespeare.components.runners import pure_transform
+    from system.components.runners import pure_transform
 
     from harness import SPEC
 
@@ -231,7 +231,7 @@ class TestTheFrozenConventionIsBinding:
 
     @staticmethod
     def _check(payload: dict) -> object:
-        from shakespeare.runtime.checks import check_convention_followed
+        from system.runtime.checks import check_convention_followed
 
         return check_convention_followed("convention_followed", payload)
 
@@ -245,7 +245,7 @@ class TestTheFrozenConventionIsBinding:
         }
 
     def _spec(self) -> dict:
-        from shakespeare.components.runners import pure_transform
+        from system.components.runners import pure_transform
 
         return pure_transform(
             {
@@ -301,9 +301,9 @@ class TestTheFrozenConventionIsBinding:
         assert not self._check({"results": [self._row("anything.pdf")]}).passed
 
     def test_the_named_goal_actually_runs_it(self) -> None:
-        from shakespeare.capabilities import CapabilityRegistry
-        from shakespeare.components.builtin import build_registry
-        from shakespeare.workflows import WorkflowRegistry
+        from system.capabilities import CapabilityRegistry
+        from system.components.builtin import build_registry
+        from system.workflows import WorkflowRegistry
 
         registry = WorkflowRegistry(
             capabilities=CapabilityRegistry(), operators=build_registry()

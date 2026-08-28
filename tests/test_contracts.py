@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 from pydantic import ValidationError
-from shakespeare.contracts import (
+from system.contracts import (
     Allowance,
     BudgetEnvelope,
     ChangeAction,

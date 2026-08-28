@@ -17,9 +17,9 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from shakespeare import memory
-from shakespeare.contracts import Bound, Measurement, MeasurementKind
-from shakespeare.runtime.audit import AuditStore
+from system import memory
+from system.contracts import Bound, Measurement, MeasurementKind
+from system.runtime.audit import AuditStore
 
 
 @pytest.fixture
@@ -427,7 +427,7 @@ class Metered:
         self.completion_tokens = completion_tokens
 
     def organize(self, **kwargs: Any) -> Any:
-        from shakespeare.gateway import ModelUsage
+        from system.gateway import ModelUsage
 
         organization, _ = self.inner.organize(**kwargs)
         return organization, ModelUsage(
@@ -444,7 +444,7 @@ class TestARunRemembersWhatItMeasured:
         Recording those zeros would put the offline suite's arithmetic into the evidence
         for a live provider, which is worse than having no evidence at all.
         """
-        from shakespeare.contracts import MeasurementKind
+        from system.contracts import MeasurementKind
 
         from harness import build
 
@@ -453,7 +453,7 @@ class TestARunRemembersWhatItMeasured:
         assert audit.measurements(kind=MeasurementKind.SCHEDULE_COST) == []
 
     def test_a_run_that_spends_records_what_each_batch_cost(self, tmp_path: Path) -> None:
-        from shakespeare.contracts import MeasurementKind
+        from system.contracts import MeasurementKind
 
         from harness import build, rename_agent, seed_invoices, values_for
 
@@ -474,7 +474,7 @@ class TestARunRemembersWhatItMeasured:
         self, tmp_path: Path
     ) -> None:
         """What a batch cost is true whether or not the plan was any good."""
-        from shakespeare.contracts import MeasurementKind
+        from system.contracts import MeasurementKind
 
         from harness import build, rename_agent, seed_invoices, values_for
 
@@ -499,7 +499,7 @@ class TestNothingReadsTheLedgerDuringARun:
     def test_a_ledger_full_of_contrary_evidence_does_not_change_what_a_run_does(
         self, tmp_path: Path
     ) -> None:
-        from shakespeare.contracts import Measurement, MeasurementKind
+        from system.contracts import Measurement, MeasurementKind
 
         from harness import build, rename_agent, seed_invoices, values_for
 

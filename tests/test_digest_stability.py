@@ -13,7 +13,7 @@ import sys
 from pathlib import Path
 
 import pytest
-from shakespeare.contracts import (
+from system.contracts import (
     Composition,
     DomainSpec,
     Invocation,
@@ -28,9 +28,9 @@ ROOT = Path(__file__).resolve().parents[1]
 PROBE = """
 import sys
 sys.path.insert(0, {root!r})
-from shakespeare.capabilities import CapabilityRegistry
-from shakespeare.workflows import WorkflowRegistry
-from shakespeare.components.builtin import build_registry
+from system.capabilities import CapabilityRegistry
+from system.workflows import WorkflowRegistry
+from system.components.builtin import build_registry
 capabilities = CapabilityRegistry()
 registry = WorkflowRegistry(capabilities=capabilities, operators=build_registry())
 print(registry.get("rename_files").digest())
@@ -70,7 +70,7 @@ class TestSetOrdering:
                 version="1.0.0",
                 description="d",
                 family=OperatorFamily.PURE_TRANSFORM,
-                entrypoint="shakespeare.components.runners:pure_transform",
+                entrypoint="system.components.runners:pure_transform",
                 features=features,
             )
 
@@ -98,7 +98,7 @@ class TestSetOrdering:
 class TestReplayDependsOnIt:
     def test_replay_accepts_a_digest_recomputed_in_another_process(self) -> None:
         """Replay refuses on a digest mismatch, so an unstable digest disables it."""
-        from shakespeare.runtime.replay import assert_same_workflow
+        from system.runtime.replay import assert_same_workflow
 
         result = subprocess.run(
             [sys.executable, "-c", PROBE.format(root=str(ROOT))],
@@ -109,16 +109,16 @@ class TestReplayDependsOnIt:
         assert result.returncode == 0, result.stderr
         recorded = result.stdout.strip()
 
-        from shakespeare.capabilities import CapabilityRegistry
-        from shakespeare.components.builtin import build_registry
-        from shakespeare.workflows import WorkflowRegistry
+        from system.capabilities import CapabilityRegistry
+        from system.components.builtin import build_registry
+        from system.workflows import WorkflowRegistry
 
         capabilities = CapabilityRegistry()
         current = WorkflowRegistry(capabilities=capabilities, operators=build_registry())
         assert_same_workflow(recorded, current.get("rename_files").digest())
 
     def test_a_genuinely_changed_workflow_is_still_refused(self) -> None:
-        from shakespeare.runtime.replay import ReplayError, assert_same_workflow
+        from system.runtime.replay import ReplayError, assert_same_workflow
 
         with pytest.raises(ReplayError):
             assert_same_workflow("a" * 64, "b" * 64)

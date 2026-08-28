@@ -10,7 +10,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from shakespeare.calibration import (
+from system.calibration import (
     accuracy_above,
     brier,
     buckets,
@@ -186,7 +186,7 @@ class TestTheRenderRecordsWhatWasClaimed:
 
 
 def _render_template():
-    from shakespeare.components.runners import pure_transform
+    from system.components.runners import pure_transform
 
     def call(arguments, workspace):
         return pure_transform({**arguments, "operation": "render_template"}, workspace)

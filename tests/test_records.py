@@ -10,11 +10,11 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from shakespeare.components.builtin import build_registry
-from shakespeare.contracts import BudgetEnvelope, Composition, DomainSpec, Invocation
-from shakespeare.domain import records
-from shakespeare.runtime.executor import Budget, Executor
-from shakespeare.runtime.verifier import Verifier
+from system.components.builtin import build_registry
+from system.contracts import BudgetEnvelope, Composition, DomainSpec, Invocation
+from system.domain import records
+from system.runtime.executor import Budget, Executor
+from system.runtime.verifier import Verifier
 
 
 def row(item_id: str, vendor: str = "ACME", confidence: float = 0.9) -> dict:
@@ -89,8 +89,8 @@ class TestContainment:
         assert written and all(workspace in path.parents for path in written)
 
     def test_the_family_is_the_only_writer_outside_filesystem_mutation(self) -> None:
-        from shakespeare.components.registry import WRITING_FAMILIES
-        from shakespeare.contracts import OperatorFamily
+        from system.components.registry import WRITING_FAMILIES
+        from system.contracts import OperatorFamily
 
         assert WRITING_FAMILIES == {
             OperatorFamily.FILESYSTEM_MUTATION,
@@ -99,8 +99,8 @@ class TestContainment:
 
     def test_a_writing_family_is_never_auto_admissible(self) -> None:
         """A component that writes is a human's decision, however low its computed risk."""
-        from shakespeare.components.registry import WRITING_FAMILIES
-        from shakespeare.contracts import AUTO_ADMISSIBLE_FAMILIES
+        from system.components.registry import WRITING_FAMILIES
+        from system.contracts import AUTO_ADMISSIBLE_FAMILIES
 
         assert not (AUTO_ADMISSIBLE_FAMILIES & WRITING_FAMILIES)
 
@@ -160,7 +160,7 @@ class TestRenderingFromTheTable:
     """
 
     def _render(self, arguments: dict, tmp_path: Path) -> dict:
-        from shakespeare.components.runners import pure_transform
+        from system.components.runners import pure_transform
 
         return pure_transform(
             {"operation": "render_template", **arguments}, tmp_path
@@ -210,7 +210,7 @@ class TestAnUnbalancedPlanNamesItsCause:
     """Two different failures wear the same counts, and only one of them is losing work."""
 
     def _assemble(self, entries_share_ids: bool):
-        from shakespeare.domain.planning import ScannedItem, assemble_plan
+        from system.domain.planning import ScannedItem, assemble_plan
 
         scanned = tuple(
             ScannedItem(
@@ -233,7 +233,7 @@ class TestAnUnbalancedPlanNamesItsCause:
         )
 
     def test_shared_identities_are_reported_as_shared(self) -> None:
-        from shakespeare.domain.planning import AssemblyError
+        from system.domain.planning import AssemblyError
 
         with pytest.raises(AssemblyError, match="share an item_id"):
             self._assemble(entries_share_ids=True)

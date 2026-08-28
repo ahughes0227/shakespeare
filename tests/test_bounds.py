@@ -10,8 +10,8 @@ import time
 from pathlib import Path
 
 import pytest
-from shakespeare.components.builtin import BUILTIN, RUNTIME_ONLY, build_registry
-from shakespeare.contracts import (
+from system.components.builtin import BUILTIN, RUNTIME_ONLY, build_registry
+from system.contracts import (
     BudgetEnvelope,
     Composition,
     DomainSpec,
@@ -19,8 +19,8 @@ from shakespeare.contracts import (
     Invocation,
     OperatorFamily,
 )
-from shakespeare.runtime.executor import Budget, Executor
-from shakespeare.runtime.verifier import Denial, Verifier
+from system.runtime.executor import Budget, Executor
+from system.runtime.verifier import Denial, Verifier
 
 DOMAIN = DomainSpec(
     id="probe",
@@ -172,7 +172,7 @@ class TestWriteContainment:
 
     def test_no_capability_grants_a_mutation_operator(self) -> None:
         """Asserted across every registered capability, not only the ones a test uses."""
-        from shakespeare.capabilities import CapabilityRegistry
+        from system.capabilities import CapabilityRegistry
 
         registry = CapabilityRegistry()
         for capability_id in registry.ids():
