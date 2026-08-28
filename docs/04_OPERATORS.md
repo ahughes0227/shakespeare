@@ -4,7 +4,7 @@ An operator family is a three-part contract:
 
 1. `family.yml` — `family`, `revision`, `allowed_features` (closed config slots)
 2. `family-context.yml` — the ten-field semantic card
-3. a pinned trusted runner in `FAMILY_RUNNERS`, all in `shakespeare/runners.py`
+3. a pinned trusted runner in `FAMILY_RUNNERS`, all in `system/components/runners.py`
 
 Registration rejects any spec whose entrypoint is not its family's trusted runner.
 
