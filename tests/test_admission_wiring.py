@@ -9,9 +9,9 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from system.admission import AdmissionService
 from system.capabilities.runner import Organization
-from system.components.builtin import build_registry
+from system.components.admission import AdmissionService
+from system.components.catalog import build_registry
 from system.contracts import (
     Composition,
     Invocation,

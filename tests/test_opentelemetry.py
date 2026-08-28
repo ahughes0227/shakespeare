@@ -35,23 +35,23 @@ def collected(monkeypatch):
 class TestActivation:
     def test_a_collector_endpoint_is_enough_to_activate_it(self, monkeypatch) -> None:
         """The standard variable, so a collector already running picks this up."""
-        from system.bootstrap import exporters
+        from system.services import exporters
 
         monkeypatch.setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:4318")
         monkeypatch.delenv("LANGSMITH_PROJECT", raising=False)
         assert any(isinstance(item, OpenTelemetryExporter) for item in exporters())
 
     def test_nothing_is_wired_without_configuration(self, monkeypatch) -> None:
-        from system.bootstrap import exporters
         from system.runtime.telemetry import NullExporter
+        from system.services import exporters
 
         for name in ("OTEL_EXPORTER_OTLP_ENDPOINT", "LANGSMITH_PROJECT", "LANGSMITH_API_KEY"):
             monkeypatch.delenv(name, raising=False)
         assert all(isinstance(item, NullExporter) for item in exporters())
 
     def test_both_backends_can_run_together(self, monkeypatch) -> None:
-        from system.bootstrap import exporters
         from system.runtime.telemetry import LangSmithExporter
+        from system.services import exporters
 
         monkeypatch.setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:4318")
         monkeypatch.setenv("LANGSMITH_PROJECT", "shakespeare")
@@ -208,7 +208,7 @@ class TestDiagnosis:
     def test_a_gate_records_its_outcome_and_what_was_missing(
         self, collected, tmp_path: Path
     ) -> None:
-        from system.agent import FakeCapabilityAgent
+        from system.capabilities.agent import FakeCapabilityAgent
         from system.capabilities.runner import Organization
         from system.runtime.telemetry import Tracer
 
@@ -227,13 +227,13 @@ class TestDiagnosis:
     def test_model_calls_are_attributable(self, collected, tmp_path: Path) -> None:
         """Cost and prompt version per call, so a regression can be traced to a promotion."""
         from system.contracts import RouteDecision
-        from system.gateway import FakeGateway, ModelProfile
-        from system.planner import ModelGoalPlanner
-        from system.prompts import PromptStore
+        from system.model_access import FakeGateway, ModelProfile
+        from system.planning.planner import ModelGoalPlanner
+        from system.prompt_store import PromptStore
         from system.runtime.telemetry import Tracer
 
         memory, exporter = collected
-        from system.planner import CapabilityChoice, GoalChoice, Judgment
+        from system.planning.planner import CapabilityChoice, GoalChoice, Judgment
 
         judgment = {"satisfied": True, "rationale": "sufficient"}
         gateway = (
@@ -325,7 +325,7 @@ class TestSurvivingAKill:
     ) -> None:
         """The gap spans fill: a goal still in flight is absent from the audit log."""
         from sqlalchemy import select
-        from system.agent import FakeCapabilityAgent
+        from system.capabilities.agent import FakeCapabilityAgent
         from system.capabilities.runner import Organization
         from system.runtime.audit import schema
 

@@ -11,7 +11,10 @@ from pathlib import Path
 
 import pytest
 import yaml
-from system.canary import (
+from system.cli import app
+from system.components.pure_transform.plans import RenameEntry
+from system.contracts import ChangeAction, ChangePlan
+from system.drift import (
     CanaryCase,
     CanaryError,
     CanaryResult,
@@ -20,9 +23,6 @@ from system.canary import (
     record,
     run_case,
 )
-from system.cli import app
-from system.components.pure_transform.plans import RenameEntry
-from system.contracts import ChangeAction, ChangePlan
 from typer.testing import CliRunner
 
 from harness import INVOICES, build, seed_invoices

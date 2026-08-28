@@ -10,7 +10,7 @@ import time
 from pathlib import Path
 
 import pytest
-from system.components.builtin import BUILTIN, RUNTIME_ONLY, build_registry
+from system.components.catalog import BUILTIN, RUNTIME_ONLY, build_registry
 from system.contracts import (
     BudgetEnvelope,
     Composition,

@@ -10,7 +10,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from system.runtime.graph import WorkflowGraph, resume, run_with_graph, sqlite_checkpointer
+from system.runtime.durability import WorkflowGraph, resume, run_with_graph, sqlite_checkpointer
 
 from harness import build
 
@@ -105,7 +105,7 @@ class TestDurability:
         assert os.environ["LANGSMITH_TRACING"] == "false"
 
     def test_the_opt_out_is_explicit(self, tmp_path: Path, monkeypatch) -> None:
-        from system.runtime.graph import disable_autotracing
+        from system.runtime.durability import disable_autotracing
 
         monkeypatch.setenv("SHAKESPEARE_ALLOW_LANGCHAIN_TRACING", "1")
         monkeypatch.setenv("LANGCHAIN_TRACING_V2", "true")

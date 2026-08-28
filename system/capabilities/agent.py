@@ -13,10 +13,10 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-from .capabilities.registry import CapabilitySpec
-from .capabilities.runner import Organization
-from .gateway import Gateway, ModelProfile, ModelUsage, render_prompt
-from .prompts import PromptStore
+from ..model_access import Gateway, ModelProfile, ModelUsage, render_prompt
+from ..prompt_store import PromptStore
+from .registry import CapabilitySpec
+from .runner import Organization
 
 
 @dataclass

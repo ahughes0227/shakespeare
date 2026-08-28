@@ -16,9 +16,9 @@ from pathlib import Path
 
 from system.capabilities import CapabilityRegistry, CapabilityRunner
 from system.capabilities.runner import Organization
-from system.components.builtin import build_registry
+from system.components.catalog import build_registry
 from system.contracts import BudgetEnvelope, Invocation, RouteDecision
-from system.planner import ScriptedGoalPlanner
+from system.planning.planner import ScriptedGoalPlanner
 from system.runtime.artifacts import ArtifactStore
 from system.runtime.executor import Budget, Executor
 from system.runtime.verifier import Verifier
@@ -79,7 +79,7 @@ class TestAnImpedimentEndsTheRun:
 
     def test_a_capability_can_raise_one_too(self, tmp_path: Path) -> None:
         """The capability sees the mechanism; the planner sees the shape. Either may object."""
-        from system.agent import FakeCapabilityAgent
+        from system.capabilities.agent import FakeCapabilityAgent
 
         agents = {"*": FakeCapabilityAgent()}
         agents["*"].queue(
@@ -302,7 +302,7 @@ class TestTheFrozenConventionIsBinding:
 
     def test_the_named_goal_actually_runs_it(self) -> None:
         from system.capabilities import CapabilityRegistry
-        from system.components.builtin import build_registry
+        from system.components.catalog import build_registry
         from system.workflows import WorkflowRegistry
 
         registry = WorkflowRegistry(

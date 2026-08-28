@@ -3,7 +3,7 @@ from __future__ import annotations
 import pathlib
 
 import pytest
-from system.components.builtin import BUILTIN, RUNTIME_ONLY, build_registry
+from system.components.catalog import BUILTIN, RUNTIME_ONLY, build_registry
 from system.components.content_extract.extraction import Backend, extract
 from system.components.pure_transform.plans import (
     AssemblyError,
@@ -269,7 +269,7 @@ class TestDeclaredOutputs:
 
     def test_every_composable_operator_declares_its_outputs(self) -> None:
         from system.components.arguments import OUTPUT_KEYS
-        from system.components.builtin import RUNTIME_ONLY
+        from system.components.catalog import RUNTIME_ONLY
 
         composable = {name for name in BUILTIN if name not in RUNTIME_ONLY}
         assert composable == set(OUTPUT_KEYS)

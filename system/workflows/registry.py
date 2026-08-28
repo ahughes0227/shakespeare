@@ -17,11 +17,11 @@ from pathlib import Path
 import yaml
 
 from ..capabilities import CapabilityRegistry
-from ..components.builtin import RUNTIME_ONLY
+from ..components.catalog import RUNTIME_ONLY
 from ..components.registry import OperatorRegistry
 from ..contracts import Contract, SemanticCard, content_digest
 from ..runtime.checks import CHECKS
-from ..runtime.compose import catalog as hydra_catalog
+from ..runtime.configuration import catalog as hydra_catalog
 from ..runtime.goals import Goal, GoalGraph
 
 WORKFLOW_ROOT = Path(__file__).resolve().parent

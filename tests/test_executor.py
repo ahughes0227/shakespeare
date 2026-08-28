@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from system.components.builtin import build_registry
+from system.components.catalog import build_registry
 from system.contracts import BudgetEnvelope, Composition, DomainSpec, Invocation
 from system.runtime.executor import Budget, Executor
 from system.runtime.verifier import Verifier

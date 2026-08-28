@@ -398,3 +398,74 @@ def recovery(attempts: dict[str, list[tuple[int, bool]]]) -> tuple[Recovery, ...
             by_attempt[number] = (reached + 1, satisfied + (1 if met else 0))
         result.append(Recovery(goal_id=goal_id, by_attempt=by_attempt))
     return tuple(result)
+
+
+@dataclass(frozen=True)
+class Shape:
+    """How one capability has fared when the planner picked it over another."""
+
+    subject: str
+    #: How many times it was chosen where something else could have been.
+    chosen: int
+    #: Of those, how many left the goal satisfied.
+    satisfied: int
+    #: The corpus sizes it was chosen at, smallest and largest.
+    corpus: tuple[int, int]
+    #: How the runs it was chosen in ended, by outcome. Whole-run outcomes: a run can end
+    #: badly for reasons that have nothing to do with this choice.
+    endings: dict[str, int]
+    #: Median spend of those runs, or None where nothing was costed.
+    median_run_cost: float | None
+
+    @property
+    def rate(self) -> float:
+        return self.satisfied / self.chosen if self.chosen else 0.0
+
+
+def median(values: list[float]) -> float | None:
+    """The middle value. Median rather than mean: one pathological run is not the story."""
+    if not values:
+        return None
+    ordered = sorted(values)
+    middle = len(ordered) // 2
+    if len(ordered) % 2:
+        return ordered[middle]
+    return (ordered[middle - 1] + ordered[middle]) / 2
+
+
+def shapes(
+    rows: list[dict[str, Any]],
+    *,
+    costs: dict[str, float],
+    endings: dict[str, str],
+) -> tuple[Shape, ...]:
+    """What the log says about choices the planner actually had to make.
+
+    The planner picks between capabilities using their *declared* per-item cost and the
+    size of the corpus. This is the other half of that: what happened next. It is a report
+    and stays one — feeding it back into the choice would make a run depend on state its
+    journal does not pin, which is the line this whole ledger is drawn on the safe side of.
+    """
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    for row in rows:
+        grouped.setdefault(row["subject"], []).append(row)
+
+    result = []
+    for subject, group in sorted(grouped.items()):
+        sizes = [int(row["value"]) for row in group]
+        runs = {row["run_id"] for row in group}
+        tally: dict[str, int] = {}
+        for run_id in runs:
+            ending = endings.get(run_id, "unfinished")
+            tally[ending] = tally.get(ending, 0) + 1
+        result.append(
+            Shape(
+                subject=subject,
+                chosen=len(group),
+                satisfied=sum(1 for row in group if row["outcome"]),
+                corpus=(min(sizes), max(sizes)),
+                endings=tally,
+                median_run_cost=median([costs[run] for run in runs if run in costs]),
+            )
+        )
+    return tuple(result)

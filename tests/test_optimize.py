@@ -15,10 +15,10 @@ from system.contracts import (
     OptimizationRun,
     PromptArtifact,
 )
-from system.optimize import PromotionGate, PromotionOutcome, obligation_score
-from system.optimize.metric import METRIC_WEIGHTS, RunSignals, signals_from_attempt
-from system.optimize.promotion import DEFAULT_MARGIN
-from system.prompts import PromptStore
+from system.prompt_store import PromptStore
+from system.tuning import PromotionGate, PromotionOutcome, obligation_score
+from system.tuning.metric import METRIC_WEIGHTS, RunSignals, signals_from_attempt
+from system.tuning.promotion import DEFAULT_MARGIN
 
 
 def signals(**overrides: object) -> RunSignals:
@@ -154,7 +154,7 @@ class TestVersioning:
         self, tmp_path: Path
     ) -> None:
         """Overwriting a pinned version would change a past run's behaviour."""
-        from system.optimize.compile import Compiler
+        from system.tuning.compile import Compiler
 
         store = PromptStore(tmp_path)
         store.save(_artifact("1.0.0"))
@@ -164,7 +164,7 @@ class TestVersioning:
         assert compiler.next_version("field_resolution") == "1.2.0"
 
     def test_first_version_when_nothing_exists(self, tmp_path: Path) -> None:
-        from system.optimize.compile import Compiler
+        from system.tuning.compile import Compiler
 
         assert Compiler(store=PromptStore(tmp_path)).next_version("new.signature") == "1.0.0"
 
@@ -172,11 +172,11 @@ class TestVersioning:
 class TestOptionalDependency:
     def test_the_runtime_imports_without_dspy(self) -> None:
         """DSPy is an optional extra; nothing on the run path may need it."""
-        import system.bootstrap  # noqa: F401
         import system.runtime  # noqa: F401
+        import system.services  # noqa: F401
 
     def test_compiling_without_dspy_explains_how_to_install_it(self) -> None:
-        from system.optimize.compile import OptimizeError, require_dspy
+        from system.tuning.compile import OptimizeError, require_dspy
 
         try:
             require_dspy()

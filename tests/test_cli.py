@@ -9,11 +9,11 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from system.admission import AdmissionService
 from system.cli import app
-from system.components.builtin import build_registry
+from system.components.admission import AdmissionService
+from system.components.catalog import build_registry
 from system.contracts import OperatorFamily, OperatorRequest, RequestKind
-from system.prompts import PromptStore
+from system.prompt_store import PromptStore
 from system.runtime.audit import AuditStore
 from typer.testing import CliRunner
 

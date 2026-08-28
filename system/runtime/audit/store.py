@@ -510,6 +510,35 @@ class AuditStore:
             counted[name] = counted.get(name, 0) + 1
         return [name for name, _ in sorted(counted.items(), key=lambda item: -item[1])]
 
+    def run_costs(self, run_ids: Sequence[str]) -> dict[str, float]:
+        """Total spend per run, for the runs asked about.
+
+        Whole-run cost, not per-goal: a run's spend cannot honestly be attributed to one
+        goal's choice, and pretending otherwise would make a shape look expensive because
+        something else in the run was.
+        """
+        if not run_ids:
+            return {}
+        query = select(
+            schema.model_invocations.c.run_id, schema.model_invocations.c.cost_usd
+        ).where(schema.model_invocations.c.run_id.in_(list(run_ids)))
+        with self.engine.begin() as connection:
+            rows = connection.execute(query).mappings().all()
+        totals: dict[str, float] = {}
+        for row in rows:
+            totals[row["run_id"]] = totals.get(row["run_id"], 0.0) + (row["cost_usd"] or 0.0)
+        return totals
+
+    def run_endings(self, run_ids: Sequence[str]) -> dict[str, str]:
+        """How each run ended. A run with no outcome row never finished."""
+        if not run_ids:
+            return {}
+        query = select(schema.run_outcomes.c.run_id, schema.run_outcomes.c.outcome).where(
+            schema.run_outcomes.c.run_id.in_(list(run_ids))
+        )
+        with self.engine.begin() as connection:
+            return {row["run_id"]: row["outcome"] for row in connection.execute(query).mappings()}
+
     def attempts_by_goal(self) -> dict[str, list[tuple[int, bool]]]:
         """Every recorded attempt as (attempt number, whether its gate was met).
 

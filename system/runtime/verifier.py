@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from ..components.builtin import RUNTIME_ONLY
+from ..components.catalog import RUNTIME_ONLY
 from ..components.registry import OperatorRegistry
 from ..contracts import (
     Composition,
@@ -22,7 +22,7 @@ from ..contracts import (
     StageSpec,
 )
 from .checks import run_check
-from .compose import CompositionError, validate_parameters, validate_selections
+from .configuration import CompositionError, validate_parameters, validate_selections
 
 
 @dataclass(frozen=True)

@@ -29,7 +29,7 @@ from ..contracts import (
     RequestContract,
     content_digest,
 )
-from ..prompts import PromptStore
+from ..prompt_store import PromptStore
 from ..workflows import RegisteredWorkflow, WorkflowRegistry
 from .artifacts import ArtifactStore
 from .audit import AuditStore
@@ -510,7 +510,7 @@ class Runtime:
             )
 
     def _remember(self, run_id: str, attempts: tuple[GoalAttempt, ...]) -> None:
-        """Record what this run measured about its own cost.
+        """Record what this run measured about its own cost and its own choices.
 
         Every run has always measured this and every run has always thrown it away, so the
         estimate each one starts from is the constant somebody typed into a manifest. The
@@ -524,6 +524,7 @@ class Runtime:
         measurements: list[Measurement] = []
         for attempt in attempts:
             capability = self.capabilities.get(attempt.capability)
+            measurements.extend(self._shape_choice(attempt, capability))
             for observation in attempt.outcome.observations:
                 model = str(observation.get("resolved_model") or "")
                 spent = int(observation.get("completion_tokens") or 0)
@@ -550,6 +551,43 @@ class Runtime:
                     )
                 )
         self.audit.record_measurements(run_id=run_id, measurements=measurements)
+
+    def _shape_choice(
+        self, attempt: GoalAttempt, capability: Any
+    ) -> list[Measurement]:
+        """Record that a shape was picked, at what size, and whether it worked.
+
+        Only where there was a decision. A goal with one eligible capability was not
+        chosen for, and recording it would put a foregone conclusion in with the calls
+        that could have gone either way.
+
+        The corpus size is the fact that was missing. The planner is shown it, and each
+        candidate's *declared* per-item cost, and picks — the same arithmetic the
+        scheduler used to do privately before ADR 0003 made it answerable.
+        """
+        if attempt.chosen_from < 2 or attempt.corpus is None:
+            return []
+        return [
+            Measurement(
+                kind=MeasurementKind.SHAPE_CHOICE,
+                subject=capability.ref,
+                # The choosing model, not the working one: this measures the planner's
+                # judgment. Blank when the planner never resolved a model, which a
+                # scripted one does not.
+                resolved_model=self._planner_model() or "unrecorded",
+                prompt_version=getattr(self.planner, "capability_version", ""),
+                # What there was to do when the choice was made.
+                value=float(attempt.corpus),
+                # One decision, between this many candidates.
+                count=attempt.chosen_from,
+                outcome=attempt.gate.satisfied,
+            )
+        ]
+
+    def _planner_model(self) -> str:
+        """Which model the planner resolved to, if it has answered at all."""
+        profile = getattr(self.planner, "profile", None)
+        return str(getattr(profile, "resolved_model", None) or getattr(profile, "model", "") or "")
 
     def _record_usage(
         self, run_id: str, role: str, usage: Any, *, prompt_version: str | None = None

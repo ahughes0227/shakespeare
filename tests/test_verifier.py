@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import pytest
-from system.components.builtin import build_registry
+from system.components.catalog import build_registry
 from system.contracts import (
     Composition,
     DomainGoal,

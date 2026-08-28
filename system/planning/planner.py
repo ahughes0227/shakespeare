@@ -14,7 +14,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
-from .contracts import (
+from ..contracts import (
     Contract,
     ObligationResult,
     RequestContract,
@@ -24,8 +24,8 @@ from .contracts import (
     StageSpec,
     StageVerdict,
 )
-from .gateway import Gateway, ModelProfile, ModelUsage, render_prompt
-from .prompts import PromptStore
+from ..model_access import Gateway, ModelProfile, ModelUsage, render_prompt
+from ..prompt_store import PromptStore
 
 ROUTE_SIGNATURE = "planner.route"
 PLAN_SIGNATURE = "planner.stage_plan"

@@ -174,6 +174,11 @@ class MeasurementKind(StrEnum):
     #: A confidence a model claimed, against whether the value beside it was right.
     #: Evidence for the configured `confidence.floor`.
     CONFIDENCE = "confidence"
+    #: Which shape the planner picked for a goal, the corpus size it picked at, and
+    #: whether the goal was then satisfied. Evidence about a decision rather than about a
+    #: constant: the planner chooses between capabilities from their *declared* costs, and
+    #: nothing recorded whether the choice was borne out.
+    SHAPE_CHOICE = "shape_choice"
 
 
 class Bound(StrEnum):

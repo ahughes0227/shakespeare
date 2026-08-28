@@ -17,10 +17,10 @@ from pathlib import Path
 
 from system.capabilities import CapabilityRegistry, CapabilityRunner, CapabilitySpec
 from system.capabilities.runner import Organization
-from system.components.builtin import RUNTIME_ONLY, build_registry
+from system.components.catalog import RUNTIME_ONLY, build_registry
 from system.components.pure_transform.plans import plan_batch
 from system.contracts import BudgetEnvelope, ErrorCode, Invocation
-from system.gateway import GatewayError
+from system.model_access import GatewayError
 from system.runtime.artifacts import ArtifactStore, Quality
 from system.runtime.executor import Budget, Executor
 from system.runtime.verifier import Verifier

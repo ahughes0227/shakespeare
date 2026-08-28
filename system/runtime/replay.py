@@ -24,7 +24,7 @@ from ..contracts import (
     StageSpec,
     StageVerdict,
 )
-from ..gateway import ModelUsage
+from ..model_access import ModelUsage
 from .audit import AuditStore
 
 
@@ -103,7 +103,7 @@ class JournalPlanner:
         A replay reproduces decisions rather than re-taking them; consulting the corpus
         again is exactly how a replay would stop being one.
         """
-        from ..planner import CapabilityChoice
+        from ..planning.planner import CapabilityChoice
 
         names = [item["id"] if isinstance(item, dict) else item for item in candidates]
         for item in self.recorded.attempts:

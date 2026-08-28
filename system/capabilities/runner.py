@@ -25,7 +25,7 @@ from pydantic import Field as PydanticField
 from pydantic import model_validator
 
 from ..contracts import Composition, Contract, ErrorCode, Invocation, OperatorAsk
-from ..gateway import GatewayError, ModelUsage
+from ..model_access import GatewayError, ModelUsage
 from ..runtime.artifacts import Artifact, ArtifactStore, Quality
 from ..runtime.executor import Budget, Executor, InvocationResult
 from ..runtime.verifier import Denial
@@ -425,7 +425,7 @@ class CapabilityRunner:
         focus: frozenset[str] | None = None,
     ) -> BatchCost:
         """Rounds within one batch, which are for self-correction rather than progress."""
-        from ..runtime.compose import CompositionError, compose
+        from ..runtime.configuration import CompositionError, compose
 
         cost = BatchCost()
 
@@ -614,7 +614,7 @@ def _selections(composition: Composition) -> dict[str, str]:
 
 def _catalog_summary(capability: CapabilitySpec, config_root: str | None) -> dict[str, Any]:
     from ..components.arguments import argument_summary
-    from ..runtime.compose import catalog as hydra_catalog
+    from ..runtime.configuration import catalog as hydra_catalog
 
     available = hydra_catalog(config_root)
     return {

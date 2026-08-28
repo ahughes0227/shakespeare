@@ -16,7 +16,7 @@ from typing import Any
 
 from pydantic import ValidationError
 
-from ..components.builtin import operation_of
+from ..components.catalog import operation_of
 from ..components.registry import OperatorRegistry
 from ..contracts import (
     BudgetEnvelope,

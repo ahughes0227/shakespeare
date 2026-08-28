@@ -18,10 +18,7 @@ from pathlib import Path
 from typing import Protocol
 from uuid import uuid4
 
-from .components import families
-from .components.registry import FAMILY_RUNNERS, OperatorRegistry
-from .components.runners import allowlist
-from .contracts import (
+from ..contracts import (
     AUTO_ADMISSIBLE_FAMILIES,
     AdmissionChoice,
     AdmissionDecision,
@@ -38,7 +35,10 @@ from .contracts import (
     RiskLevel,
     content_digest,
 )
-from .runtime.audit import AuditStore
+from ..runtime.audit import AuditStore
+from . import families
+from .registry import FAMILY_RUNNERS, OperatorRegistry
+from .runners import allowlist
 
 #: The four tiers a rendered package must pass before it can be admitted.
 TEST_TIERS: tuple[str, ...] = ("contract", "containment", "functional", "regression")

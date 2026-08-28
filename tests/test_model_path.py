@@ -8,14 +8,14 @@ build, and responses parse against their contracts.
 from __future__ import annotations
 
 import pytest
-from system.agent import ModelCapabilityAgent
 from system.capabilities import CapabilityRegistry
+from system.capabilities.agent import ModelCapabilityAgent
 from system.capabilities.runner import Organization
-from system.components.builtin import build_registry
+from system.components.catalog import build_registry
 from system.contracts import RequestContract, RouteDecision
-from system.gateway import FakeGateway, GatewayError, ModelProfile
-from system.planner import CapabilityChoice, GoalChoice, Judgment, ModelGoalPlanner
-from system.prompts import PromptStore
+from system.model_access import FakeGateway, GatewayError, ModelProfile
+from system.planning.planner import CapabilityChoice, GoalChoice, Judgment, ModelGoalPlanner
+from system.prompt_store import PromptStore
 from system.runtime.verifier import Denial, Verifier
 from system.workflows import WorkflowRegistry
 
@@ -190,7 +190,7 @@ class TestCapabilityAgentPath:
 
 class TestWiring:
     def test_bootstrap_assembles_without_a_network(self, tmp_path) -> None:
-        from system.bootstrap import build_runtime
+        from system.services import build_runtime
 
         services = build_runtime(
             state_root=tmp_path, gateway=FakeGateway(), profile=PROFILE

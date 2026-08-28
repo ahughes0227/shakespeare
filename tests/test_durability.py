@@ -9,18 +9,18 @@ import os
 from pathlib import Path
 
 import pytest
-from system.agent import FakeCapabilityAgent
 from system.capabilities import CapabilityRegistry
-from system.components.builtin import build_registry
+from system.capabilities.agent import FakeCapabilityAgent
+from system.components.catalog import build_registry
 from system.contracts import (
     BudgetEnvelope,
     RouteDecision,
 )
-from system.planner import ScriptedGoalPlanner
+from system.planning.planner import ScriptedGoalPlanner
 from system.runtime.audit import AuditStore
+from system.runtime.durability import WorkflowGraph, sqlite_checkpointer
 from system.runtime.engine import Runtime
 from system.runtime.executor import Budget, Executor
-from system.runtime.graph import WorkflowGraph, sqlite_checkpointer
 from system.runtime.telemetry import RecordingExporter, Tracer
 from system.runtime.verifier import Verifier
 from system.workflows import WorkflowRegistry
@@ -68,7 +68,7 @@ class TestDurability:
         connection, so nothing but the SQLite file carries the run forward — which is what
         surviving a killed process actually means.
         """
-        from system.runtime.graph import run_with_graph
+        from system.runtime.durability import run_with_graph
 
         runtime, request, audit, _ = build(tmp_path)
         checkpoint = tmp_path / "checkpoints.sqlite3"
@@ -104,7 +104,7 @@ class TestDurability:
         committing something it cannot account for.
         """
         from langgraph.types import Command
-        from system.runtime.graph import run_with_graph
+        from system.runtime.durability import run_with_graph
 
         runtime, request, audit, _ = build(tmp_path)
         checkpoint = tmp_path / "cp.sqlite3"
@@ -131,7 +131,7 @@ class TestDurability:
         """A suspended run must leave completed facts only, never half-written ones."""
         from sqlalchemy import select
         from system.runtime.audit import schema
-        from system.runtime.graph import run_with_graph
+        from system.runtime.durability import run_with_graph
 
         runtime, request, audit, _ = build(tmp_path)
         with sqlite_checkpointer(tmp_path / "cp.sqlite3") as saver:
@@ -260,8 +260,8 @@ class TestLiveSmoke:
     """
 
     def test_a_real_model_produces_a_balanced_plan(self, tmp_path: Path) -> None:
-        from system.bootstrap import build_runtime
         from system.contracts import RequestContract
+        from system.services import build_runtime
 
         from fixtures.build import build_tree, cleanup
 

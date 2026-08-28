@@ -6,12 +6,12 @@ from pathlib import Path
 
 import yaml
 
-from ..contracts import PromptArtifact, content_digest
+from .contracts import PromptArtifact, content_digest
 
 #: The package root. A prompt is not a kind of file kept with other files of its kind; it
 #: belongs to the system that speaks it, so it lives in that system's directory and is
 #: found by asking which system a signature names.
-PACKAGE_ROOT = Path(__file__).resolve().parents[1]
+PACKAGE_ROOT = Path(__file__).resolve().parent
 
 
 class PromptStoreError(RuntimeError):

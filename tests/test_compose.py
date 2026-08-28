@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
-from system.runtime.compose import CompositionError, catalog, compose, validate_parameters
+from system.runtime.configuration import CompositionError, catalog, compose, validate_parameters
 
 
 class TestCatalog:

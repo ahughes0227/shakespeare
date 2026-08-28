@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from system.admission import (
+from system.components.admission import (
     TEST_TIERS,
     AdmissionError,
     AdmissionService,
@@ -13,7 +13,7 @@ from system.admission import (
     compute_risk,
     digest_tree,
 )
-from system.components.builtin import build_registry
+from system.components.catalog import build_registry
 from system.components.registry import FAMILY_RUNNERS
 from system.contracts import (
     AdmissionChoice,

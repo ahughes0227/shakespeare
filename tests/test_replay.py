@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 from system.capabilities import CapabilityRegistry
-from system.components.builtin import build_registry
+from system.components.catalog import build_registry
 from system.components.filesystem_mutation import mutation
 from system.contracts import ChangeAction
 from system.runtime.audit import AuditStore

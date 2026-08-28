@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from system import memory
+from system import measurements as memory
 from system.contracts import Bound, Measurement, MeasurementKind
 from system.runtime.audit import AuditStore
 
@@ -427,7 +427,7 @@ class Metered:
         self.completion_tokens = completion_tokens
 
     def organize(self, **kwargs: Any) -> Any:
-        from system.gateway import ModelUsage
+        from system.model_access import ModelUsage
 
         organization, _ = self.inner.organize(**kwargs)
         return organization, ModelUsage(
@@ -544,3 +544,131 @@ class TestNothingReadsTheLedgerDuringARun:
         # Forty observations screaming a different number, and the run still uses the one
         # a person wrote in the manifest.
         assert set(scheduled) == {declared}
+
+
+def choice(
+    *, subject: str, corpus: int, satisfied: bool, run_id: str = "run-1", candidates: int = 2
+) -> Measurement:
+    return Measurement(
+        kind=MeasurementKind.SHAPE_CHOICE,
+        subject=subject,
+        resolved_model="gpt-5-mini",
+        value=float(corpus),
+        count=candidates,
+        outcome=satisfied,
+    )
+
+
+class TestWhetherTheShapeChosenWasTheRightOne:
+    """The planner now picks between capabilities from their *declared* per-item cost.
+
+    Nothing recorded whether the pick was borne out — the same gap ADR 0003 found in the
+    scheduler: arithmetic computed, shown to a model, and never checked against what
+    happened.
+    """
+
+    def test_it_reports_how_often_each_shape_left_the_goal_satisfied(self) -> None:
+        rows = [
+            {**choice(subject="transcribe@1.0.0", corpus=60, satisfied=True).model_dump(),
+             "run_id": f"run-{index}"}
+            for index in range(4)
+        ] + [
+            {**choice(subject="transcribe@1.0.0", corpus=60, satisfied=False).model_dump(),
+             "run_id": "run-9"}
+        ]
+        found = measurements.shapes(rows, costs={}, endings={})
+        assert found[0].chosen == 5
+        assert found[0].satisfied == 4
+        assert found[0].rate == 0.8
+
+    def test_it_reports_the_range_of_corpus_sizes_a_shape_was_chosen_at(self) -> None:
+        """A shape that only ever won on small corpora has not been tested on large ones."""
+        rows = [
+            {**choice(subject="resolve@1.0.0", corpus=size, satisfied=True).model_dump(),
+             "run_id": f"run-{size}"}
+            for size in (3, 12, 60)
+        ]
+        found = measurements.shapes(rows, costs={}, endings={})
+        assert found[0].corpus == (3, 60)
+
+    def test_run_cost_is_the_median_rather_than_the_mean(self) -> None:
+        """One pathological run is not the story, and a mean lets it be."""
+        rows = [
+            {**choice(subject="resolve@1.0.0", corpus=60, satisfied=True).model_dump(),
+             "run_id": run}
+            for run in ("a", "b", "c")
+        ]
+        found = measurements.shapes(
+            rows, costs={"a": 0.08, "b": 0.09, "c": 9.00}, endings={}
+        )
+        assert found[0].median_run_cost == 0.09
+
+    def test_a_run_that_never_finished_is_named_rather_than_counted_as_success(self) -> None:
+        rows = [
+            {**choice(subject="resolve@1.0.0", corpus=60, satisfied=True).model_dump(),
+             "run_id": "a"}
+        ]
+        found = measurements.shapes(rows, costs={}, endings={})
+        assert found[0].endings == {"unfinished": 1}
+
+    def test_shapes_are_compared_separately_rather_than_pooled(self) -> None:
+        rows = [
+            {**choice(subject="resolve@1.0.0", corpus=60, satisfied=False).model_dump(),
+             "run_id": "a"},
+            {**choice(subject="transcribe@1.0.0", corpus=60, satisfied=True).model_dump(),
+             "run_id": "b"},
+        ]
+        found = measurements.shapes(rows, costs={}, endings={})
+        assert [shape.subject for shape in found] == ["resolve@1.0.0", "transcribe@1.0.0"]
+        assert [shape.rate for shape in found] == [0.0, 1.0]
+
+
+class TestOnlyARealChoiceIsRecorded:
+    def test_a_goal_with_one_candidate_records_nothing(self, tmp_path: Path) -> None:
+        """It was not chosen for, and a foregone conclusion is not evidence about judgment.
+
+        The rename workflow gives most goals exactly one capability, so recording those
+        would bury the handful of real decisions under a pile of settled ones.
+        """
+        from harness import build
+        from system.contracts import MeasurementKind
+
+        runtime, request, audit, _ = build(tmp_path)
+        runtime.run(request, commit=False)
+        assert audit.measurements(kind=MeasurementKind.SHAPE_CHOICE) == []
+
+    def test_a_goal_with_several_candidates_records_the_choice(self, tmp_path: Path) -> None:
+        from harness import build
+        from system.contracts import MeasurementKind
+        from system.runtime.control import Chosen
+
+        runtime, request, audit, _ = build(tmp_path)
+        original = runtime.__dict__.get("_probe")
+        assert original is None  # nothing already patched
+
+        # The rename workflow declares one capability per goal, so a second candidate has
+        # to be simulated to exercise the recording path end to end.
+        from system.runtime import control
+
+        real = control.Controller._choose_capability
+
+        def two_candidates(self: Any, goal: Any) -> Chosen:
+            chosen = real(self, goal)
+            return Chosen(
+                capability=chosen.capability,
+                impediment=chosen.impediment,
+                candidates=2,
+                corpus=chosen.corpus if chosen.corpus is not None else 3,
+            )
+
+        control.Controller._choose_capability = two_candidates  # type: ignore[method-assign]
+        try:
+            runtime.run(request, commit=False)
+        finally:
+            control.Controller._choose_capability = real  # type: ignore[method-assign]
+
+        recorded = audit.measurements(kind=MeasurementKind.SHAPE_CHOICE)
+        assert recorded, "a goal with a real choice was recorded"
+        assert all(row["count"] == 2 for row in recorded)
+        assert all(row["value"] > 0 for row in recorded)
+        assert all("@" in row["subject"] for row in recorded)

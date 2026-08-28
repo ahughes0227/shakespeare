@@ -10,9 +10,9 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from system.agent import FakeCapabilityAgent
+from system.capabilities.agent import FakeCapabilityAgent
 from system.contracts import ChangeAction, Invocation, RouteDecision
-from system.planner import ScriptedGoalPlanner
+from system.planning.planner import ScriptedGoalPlanner
 from system.runtime.artifacts import Quality
 from system.runtime.goals import GateOutcome
 

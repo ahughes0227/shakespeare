@@ -30,7 +30,7 @@ import sys
 sys.path.insert(0, {root!r})
 from system.capabilities import CapabilityRegistry
 from system.workflows import WorkflowRegistry
-from system.components.builtin import build_registry
+from system.components.catalog import build_registry
 capabilities = CapabilityRegistry()
 registry = WorkflowRegistry(capabilities=capabilities, operators=build_registry())
 print(registry.get("rename_files").digest())
@@ -110,7 +110,7 @@ class TestReplayDependsOnIt:
         recorded = result.stdout.strip()
 
         from system.capabilities import CapabilityRegistry
-        from system.components.builtin import build_registry
+        from system.components.catalog import build_registry
         from system.workflows import WorkflowRegistry
 
         capabilities = CapabilityRegistry()

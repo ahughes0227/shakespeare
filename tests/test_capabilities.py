@@ -13,7 +13,7 @@ from pathlib import Path
 import pytest
 from system.capabilities import CapabilityRunner, CapabilitySpec
 from system.capabilities.runner import Organization, ScriptedCapabilityAgent
-from system.components.builtin import build_registry
+from system.components.catalog import build_registry
 from system.contracts import BudgetEnvelope, Invocation, SemanticCard
 from system.runtime.artifacts import ArtifactStore, Quality
 from system.runtime.executor import Budget, Executor
@@ -210,7 +210,7 @@ class TestUnusableResponses:
 
         def organize(self, *, capability, request, artifacts, context, prior, catalog_summary):
             from system.contracts import ErrorCode
-            from system.gateway import GatewayError
+            from system.model_access import GatewayError
 
             self.calls += 1
             self.seen_prior.append(prior)
@@ -222,7 +222,7 @@ class TestUnusableResponses:
 
     def test_the_run_survives_and_the_capability_retries(self, tmp_path: Path) -> None:
         from system.capabilities import CapabilityRunner
-        from system.components.builtin import build_registry
+        from system.components.catalog import build_registry
         from system.runtime.artifacts import ArtifactStore
         from system.runtime.executor import Executor
         from system.runtime.verifier import Verifier
@@ -251,7 +251,7 @@ class TestUnusableResponses:
 
     def test_the_reason_reaches_the_next_round(self, tmp_path: Path) -> None:
         from system.capabilities import CapabilityRunner
-        from system.components.builtin import build_registry
+        from system.components.catalog import build_registry
         from system.runtime.artifacts import ArtifactStore
         from system.runtime.executor import Executor
         from system.runtime.verifier import Verifier

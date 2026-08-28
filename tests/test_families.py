@@ -123,8 +123,8 @@ class TestMarkerVerification:
 
 class TestAdmissionEnforcesFeatures:
     def test_a_request_naming_an_undeclared_slot_escalates(self, tmp_path: Path) -> None:
-        from system.admission import AdmissionService
-        from system.components.builtin import build_registry
+        from system.components.admission import AdmissionService
+        from system.components.catalog import build_registry
         from system.contracts import AdmissionDisposition, OperatorRequest, RequestKind
         from system.runtime.audit import AuditStore
 

@@ -16,7 +16,6 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
-from .bootstrap import Services, build_runtime, default_state_root
 from .capabilities import CapabilityRegistryError
 from .components.filesystem_mutation import mutation
 from .contracts import (
@@ -29,13 +28,14 @@ from .contracts import (
     RequestContract,
     ReversalRecord,
 )
-from .gateway import GatewayError
-from .planner import FakePlanner, Planner
+from .model_access import GatewayError
+from .planning.planner import FakePlanner, Planner
 from .runtime.audit.metrics import snapshot
+from .services import Services, build_runtime, default_state_root
 from .workflows import WorkflowRegistryError
 
 if TYPE_CHECKING:
-    from .memory import Proposal
+    from .measurements import Proposal
 
 app = typer.Typer(
     name="shakespeare",
@@ -48,7 +48,7 @@ journal_app = typer.Typer(help="Read the immutable audit log.", no_args_is_help=
 requests_app = typer.Typer(help="Review requested operators.", no_args_is_help=True)
 prompts_app = typer.Typer(help="Inspect and promote prompt artifacts.", no_args_is_help=True)
 canary_app = typer.Typer(help="Golden-fixture drift detection.", no_args_is_help=True)
-memory_app = typer.Typer(
+measurements_app = typer.Typer(
     help="What runs measured, and which declared constant it supports.",
     no_args_is_help=True,
 )
@@ -57,7 +57,7 @@ app.add_typer(journal_app, name="journal")
 app.add_typer(requests_app, name="requests")
 app.add_typer(prompts_app, name="prompts")
 app.add_typer(canary_app, name="canary")
-app.add_typer(memory_app, name="measurements")
+app.add_typer(measurements_app, name="measurements")
 
 console = Console()
 err = Console(stderr=True)
@@ -653,7 +653,7 @@ def operator_show(name: str) -> None:
     """
     from .components import families
     from .components.arguments import OUTPUT_KEYS, argument_summary
-    from .components.builtin import RUNTIME_ONLY
+    from .components.catalog import RUNTIME_ONLY
 
     services = _services(planner=_no_model(), agents={})
     if name not in services.operators:
@@ -705,7 +705,7 @@ def operator_show(name: str) -> None:
 
 @app.command("operators")
 def operators_list() -> None:
-    from .components.builtin import RUNTIME_ONLY
+    from .components.catalog import RUNTIME_ONLY
 
     services = _services(planner=_no_model(), agents={})
     table = Table(title="Registered operators")
@@ -888,7 +888,7 @@ def prompts_list(
     prompt_root: Annotated[Path | None, typer.Option("--prompts", hidden=True)] = None,
 ) -> None:
     """Every prompt artifact, and which version each capability pins."""
-    from .prompts import PromptStore
+    from .prompt_store import PromptStore
 
     services = _services(planner=_no_model(), agents={})
     store = PromptStore(prompt_root)
@@ -919,7 +919,7 @@ def prompts_list(
 @prompts_app.command("compile")
 def prompts_compile(signature: Annotated[str, typer.Argument()]) -> None:
     """Optimize a prompt offline with DSPy."""
-    from .optimize.compile import OptimizeError, require_dspy
+    from .tuning.compile import OptimizeError, require_dspy
 
     try:
         require_dspy()
@@ -945,8 +945,8 @@ def prompts_promote(
     prompt_root: Annotated[Path | None, typer.Option("--prompts", hidden=True)] = None,
 ) -> None:
     """Assess a compiled prompt against the promotion gate."""
-    from .optimize import PromotionGate, PromotionOutcome
-    from .prompts import PromptStore
+    from .prompt_store import PromptStore
+    from .tuning import PromotionGate, PromotionOutcome
 
     store = PromptStore(prompt_root)
     services = _services(state_root, planner=_no_model(), agents={})
@@ -987,7 +987,7 @@ def prompts_promote(
 # --------------------------------------------------------------------------------------
 
 
-@memory_app.command("list")
+@measurements_app.command("list")
 def measurements_list(
     kind: Annotated[
         str, typer.Option("--kind", help="schedule_cost or confidence.")
@@ -1021,7 +1021,7 @@ def measurements_list(
     console.print(table)
 
 
-@memory_app.command("propose")
+@measurements_app.command("propose")
 def measurements_propose(
     subject: Annotated[
         str | None,
@@ -1041,11 +1041,11 @@ def measurements_propose(
     written into the manifest or config that declares it, so the change is a versioned
     edit visible in git rather than state accumulating in a database nobody reviews.
     """
-    from . import memory
+    from . import measurements
     from .contracts import MeasurementKind
 
     services = _services(state_root, planner=_no_model(), agents={})
-    proposals: list[tuple[memory.Proposal, str]] = []
+    proposals: list[tuple[measurements.Proposal, str]] = []
 
     # Keyed on what is declared now. Evidence recorded under an older capability version
     # or an older pinned prompt describes something else, so it is set aside rather than
@@ -1065,7 +1065,7 @@ def measurements_propose(
         if (capability.ref, row["resolved_model"]) in seen:
             continue
         seen.add((capability.ref, row["resolved_model"]))
-        evidence = memory.applicable(
+        evidence = measurements.applicable(
             [
                 measured
                 for measured in services.audit.measurements(
@@ -1091,7 +1091,7 @@ def measurements_propose(
             continue
         proposals.append(
             (
-                memory.cost_proposal(evidence.rows, incumbent=capability.cost_per_item),
+                measurements.cost_proposal(evidence.rows, incumbent=capability.cost_per_item),
                 f"cost_per_item in shakespeare/capabilities/{capability_id}/capability.yml",
             )
         )
@@ -1107,7 +1107,7 @@ def measurements_propose(
             for model in sorted({row["resolved_model"] for row in claims}):
                 proposals.append(
                     (
-                        memory.floor_proposal(
+                        measurements.floor_proposal(
                             [row for row in claims if row["resolved_model"] == model],
                             incumbent=_declared_floor(),
                             precision=precision,
@@ -1126,7 +1126,58 @@ def measurements_propose(
         _render_proposal(proposal, where)
 
 
-@memory_app.command("recovery")
+@measurements_app.command("shapes")
+def measurements_shapes(
+    state_root: Annotated[Path | None, typer.Option("--state", hidden=True)] = None,
+) -> None:
+    """How each shape has fared when the planner actually had a choice.
+
+    The planner picks between capabilities from their *declared* per-item cost and the
+    size of the corpus. This is the other half: what happened after it picked. A report
+    only — feeding it back into the choice would make a run depend on state its journal
+    does not pin.
+    """
+    from . import measurements
+    from .contracts import MeasurementKind
+
+    services = _services(state_root, planner=_no_model(), agents={})
+    rows = services.audit.measurements(kind=MeasurementKind.SHAPE_CHOICE)
+    if not rows:
+        console.print(
+            "[yellow]No shape choices recorded yet.[/yellow]\n"
+            "[dim]Only goals that several capabilities could answer are recorded: "
+            "a goal with one candidate was not chosen for.[/dim]"
+        )
+        return
+    runs = [row["run_id"] for row in rows]
+    found = measurements.shapes(
+        rows, costs=services.audit.run_costs(runs), endings=services.audit.run_endings(runs)
+    )
+    table = Table(title="Shapes the planner chose, and what followed")
+    table.add_column("capability", style="bold")
+    table.add_column("chosen", justify="right")
+    table.add_column("goal satisfied", justify="right")
+    table.add_column("corpus", justify="right")
+    table.add_column("runs ended")
+    table.add_column("median run cost", justify="right")
+    for shape in found:
+        low, high = shape.corpus
+        table.add_row(
+            shape.subject,
+            str(shape.chosen),
+            f"{shape.satisfied}/{shape.chosen} ({shape.rate:.0%})",
+            f"{low}" if low == high else f"{low}–{high}",
+            " ".join(f"{name}:{count}" for name, count in sorted(shape.endings.items())),
+            f"${shape.median_run_cost:.4f}" if shape.median_run_cost is not None else "—",
+        )
+    console.print(table)
+    console.print(
+        "[dim]Run cost is the whole run's, not this goal's — a run can be expensive for "
+        "reasons that have nothing to do with the shape chosen.[/dim]"
+    )
+
+
+@measurements_app.command("recovery")
 def measurements_recovery(
     state_root: Annotated[Path | None, typer.Option("--state", hidden=True)] = None,
 ) -> None:
@@ -1136,10 +1187,10 @@ def measurements_recovery(
     the audit log. `max_goal_attempts` is a chosen number, and this is what would replace
     the choosing.
     """
-    from . import memory
+    from . import measurements
 
     services = _services(state_root, planner=_no_model(), agents={})
-    rows = memory.recovery(services.audit.attempts_by_goal())
+    rows = measurements.recovery(services.audit.attempts_by_goal())
     if not rows:
         console.print("[yellow]No attempts recorded yet.[/yellow]")
         return
@@ -1181,12 +1232,12 @@ def _declared_floor() -> float | None:
 
 
 def _render_proposal(proposal: Proposal, where: str) -> None:
-    from . import memory
+    from . import measurements
 
     colour = {
-        memory.Verdict.SUPPORTED: "green",
-        memory.Verdict.REVIEW: "yellow",
-        memory.Verdict.INSUFFICIENT: "dim",
+        measurements.Verdict.SUPPORTED: "green",
+        measurements.Verdict.REVIEW: "yellow",
+        measurements.Verdict.INSUFFICIENT: "dim",
     }[proposal.verdict]
     lines = [
         f"[bold]{proposal.subject}[/bold]  ·  {proposal.resolved_model or 'no model'}",
@@ -1201,7 +1252,7 @@ def _render_proposal(proposal: Proposal, where: str) -> None:
         lines.append(
             "[dim]" + "  ".join(f"{k}={v}" for k, v in proposal.detail.items()) + "[/dim]"
         )
-    if proposal.verdict is memory.Verdict.SUPPORTED:
+    if proposal.verdict is measurements.Verdict.SUPPORTED:
         lines.append(f"\n[dim]Pin it by setting {where}.[/dim]")
     console.print(Panel("\n".join(lines), border_style=colour, title=str(proposal.verdict)))
 
@@ -1216,7 +1267,7 @@ def canary_list(
     root: Annotated[Path | None, typer.Option("--canaries", hidden=True)] = None,
 ) -> None:
     """Golden cases available for drift detection."""
-    from .canary import load_cases
+    from .drift import load_cases
 
     cases = load_cases(root)
     if not cases:
@@ -1252,7 +1303,7 @@ def canary_run(
     """
     import tempfile
 
-    from .canary import load_cases, run_case
+    from .drift import load_cases, run_case
 
     cases = [case for case in load_cases(root) if name is None or case.name == name]
     if not cases:
@@ -1300,7 +1351,7 @@ def canary_record(
     """
     import tempfile
 
-    from .canary import load_cases, record, run_case
+    from .drift import load_cases, record, run_case
 
     matches = [case for case in load_cases(root) if case.name == name]
     if not matches:

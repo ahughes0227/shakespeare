@@ -65,10 +65,33 @@ class GoalAttempt:
     capability: str
     outcome: CapabilityOutcome
     gate: GateResult
+    #: How many capabilities could have answered this goal. One means there was no
+    #: decision to evaluate; more means the planner picked a shape, and whether it picked
+    #: well is a question somebody can now ask.
+    chosen_from: int = 1
+    #: How much there was to do when the choice was made. The arithmetic the planner was
+    #: shown and nobody kept — the same thing ADR 0003 found the scheduler doing.
+    corpus: int | None = None
 
     @property
     def satisfied(self) -> bool:
         return self.gate.satisfied
+
+
+@dataclass(frozen=True)
+class Chosen:
+    """Which capability answers a goal, and what the choice was made against.
+
+    A record rather than a widening tuple: the planner now decides between shapes using
+    the corpus size and each candidate's declared cost, and the facts it decided on are
+    worth carrying out of the decision rather than being recomputed or lost.
+    """
+
+    capability: CapabilitySpec | None = None
+    impediment: str | None = None
+    #: How many capabilities could have answered. One means nothing was decided.
+    candidates: int = 1
+    corpus: int | None = None
 
 
 @dataclass
@@ -151,7 +174,8 @@ class Controller:
                     f"{self.max_goal_attempts} attempts",
                 )
 
-            capability, impediment = self._choose_capability(goal)
+            chosen = self._choose_capability(goal)
+            capability, impediment = chosen.capability, chosen.impediment
             if capability is None:
                 # Not a failure to be retried: a statement that no attempt of this shape
                 # will work. It ends the run for a person to read.
@@ -210,6 +234,8 @@ class Controller:
                     capability=capability.id,
                     outcome=outcome,
                     gate=result,
+                    chosen_from=chosen.candidates,
+                    corpus=chosen.corpus,
                 )
             )
             if outcome.impediment:
@@ -260,7 +286,7 @@ class Controller:
         chosen = self.planner.select_goal(open_goals, self.artifacts.describe())
         return graph.goal(chosen)
 
-    def _choose_capability(self, goal: Goal) -> tuple[CapabilitySpec | None, str | None]:
+    def _choose_capability(self, goal: Goal) -> Chosen:
         """Which capability answers this goal — decided from the corpus, not from names.
 
         The facts that decide it are the ones the scheduler was computing privately: how
@@ -278,8 +304,12 @@ class Controller:
                 f"goal {goal.id!r} names no registered capability",
                 ErrorCode.COMPOSITION_INVALID,
             )
+        evidence = self._corpus_evidence(candidates)
+        # One number, because a report about a choice needs the size it was made at and
+        # every candidate divides the same set in practice. Absent when nothing divides.
+        corpus = max(evidence["items"].values(), default=None)
         if len(candidates) == 1:
-            return candidates[0], None
+            return Chosen(capability=candidates[0], candidates=1, corpus=corpus)
         choice = self.planner.select_capability(
             goal,
             [
@@ -291,14 +321,14 @@ class Controller:
                 }
                 for spec in candidates
             ],
-            self._corpus_evidence(candidates),
+            evidence,
         )
         if getattr(choice, "impediment", None):
-            return None, choice.impediment
+            return Chosen(impediment=choice.impediment, candidates=len(candidates), corpus=corpus)
         for spec in candidates:
             if spec.id == getattr(choice, "capability_id", choice):
-                return spec, None
-        return candidates[0], None
+                return Chosen(capability=spec, candidates=len(candidates), corpus=corpus)
+        return Chosen(capability=candidates[0], candidates=len(candidates), corpus=corpus)
 
     def _corpus_evidence(self, candidates: list[CapabilitySpec]) -> dict[str, Any]:
         """What there is to do, and what one response can hold."""

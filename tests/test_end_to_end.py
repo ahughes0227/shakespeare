@@ -13,15 +13,15 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from system.agent import ModelCapabilityAgent
 from system.capabilities import CapabilityRegistry
+from system.capabilities.agent import ModelCapabilityAgent
 from system.capabilities.runner import Organization
-from system.components.builtin import build_registry
+from system.components.catalog import build_registry
 from system.components.readonly_scan.inspection import scan
 from system.contracts import ChangeAction, RequestContract, RouteDecision
-from system.gateway import FakeGateway, ModelProfile
-from system.planner import CapabilityChoice, GoalChoice, Judgment, ModelGoalPlanner
-from system.prompts import PromptStore
+from system.model_access import FakeGateway, ModelProfile
+from system.planning.planner import CapabilityChoice, GoalChoice, Judgment, ModelGoalPlanner
+from system.prompt_store import PromptStore
 from system.runtime.audit import AuditStore
 from system.runtime.engine import Runtime
 from system.runtime.executor import Executor

@@ -11,7 +11,7 @@ from typing import Any
 from uuid import uuid4
 
 from ..contracts import OptimizationRun, PromptArtifact
-from ..prompts import PromptStore
+from ..prompt_store import PromptStore
 
 
 class OptimizeError(RuntimeError):

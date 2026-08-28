@@ -6,15 +6,15 @@ from pathlib import Path
 
 import pytest
 from system.capabilities import CapabilityRegistry
-from system.components.builtin import build_registry
+from system.components.catalog import build_registry
 from system.contracts import PromptArtifact
-from system.planner import (
+from system.planning.planner import (
     CAPABILITY_SIGNATURE,
     GOAL_SIGNATURE,
     JUDGE_SIGNATURE,
     ROUTE_SIGNATURE,
 )
-from system.prompts import PromptStore, PromptStoreError
+from system.prompt_store import PromptStore, PromptStoreError
 from system.workflows import WorkflowRegistry
 
 

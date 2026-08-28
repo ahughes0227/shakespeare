@@ -11,7 +11,7 @@ from pathlib import Path
 
 from system.capabilities import CapabilityRunner, CapabilitySpec
 from system.capabilities.runner import Organization, _record_progress
-from system.components.builtin import build_registry
+from system.components.catalog import build_registry
 from system.components.runners import pure_transform
 from system.contracts import BudgetEnvelope, Invocation
 from system.runtime.artifacts import ArtifactStore, Quality

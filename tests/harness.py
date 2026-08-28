@@ -9,12 +9,12 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from system.agent import FakeCapabilityAgent
 from system.capabilities import CapabilityRegistry
+from system.capabilities.agent import FakeCapabilityAgent
 from system.capabilities.runner import Organization
-from system.components.builtin import build_registry
+from system.components.catalog import build_registry
 from system.contracts import Invocation, RequestContract, RouteDecision, SemanticCard
-from system.planner import ScriptedGoalPlanner
+from system.planning.planner import ScriptedGoalPlanner
 from system.runtime.artifacts import Quality
 from system.runtime.audit import AuditStore
 from system.runtime.engine import Runtime
