@@ -30,6 +30,13 @@ architectural changes, then `docs/reference/glossary.md`.
   the LangGraph checkpointer.
 - Telemetry carries digests and metadata only. Never document content.
 - Prompts improve offline under version pinning. Nothing self-improves inside a run.
+- The interpreter is free-threaded CPython 3.14+ (`cp314t`), started with `PYTHON_GIL=0`.
+  `compat/` holds pure-Python stand-ins for the three dependencies that have no
+  free-threaded build; see `docs/adr/0006-free-threaded-python-only.md` before adding a
+  fourth, and delete each one the day its upstream ships a wheel.
+- Extraction is the only threaded work. The lxml-backed backends — DOCX, XLSX, email —
+  stay off the pool until lxml declares free-threaded support, and results are ordered by
+  input, never by completion. Thread something else only after reading ADR 0006.
 
 Do not add a second orchestration, execution, registry, or configuration abstraction.
 Do not let a model register operators, grant approvals, widen a catalog, or raise a budget.
