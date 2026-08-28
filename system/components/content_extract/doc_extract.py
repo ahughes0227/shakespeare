@@ -38,16 +38,26 @@ def run(arguments: dict[str, Any], workspace: Path) -> dict[str, Any]:
         page_limit=int(config_value(arguments, "extract", "page_limit", 20)),
         char_limit=int(config_value(arguments, "extract", "char_limit", 200_000)),
     )
-    results = [
-        extraction.extract(
+    root = Path(arguments["root"])
+    items = tuple(
+        extraction.Item(
             item_id=item["item_id"],
-            path=Path(arguments["root"]) / item["relpath"],
+            path=root / item["relpath"],
             media_type=item.get("media_type", "application/octet-stream"),
-            backend=extraction.Backend(config_value(arguments, "extract", "backend", "auto_chain")),
-            options=options,
         )
         for item in arguments["items"]
-    ]
+    )
+    # `max_workers` is absent from FEATURES and from the `extract` config group on
+    # purpose, so no composition can carry it and no subagent can ask for it. It reads
+    # from the flat argument path only, which is the seam the unit tests use to pin the
+    # serial and parallel routes against each other.
+    requested = config_value(arguments, "extract", "max_workers", None)
+    results = extraction.extract_many(
+        items,
+        backend=extraction.Backend(config_value(arguments, "extract", "backend", "auto_chain")),
+        options=options,
+        max_workers=None if requested is None else int(requested),
+    )
     return {
         "extractions": [item.model_dump(mode="json") for item in results],
         "usable": sum(1 for item in results if item.usable),

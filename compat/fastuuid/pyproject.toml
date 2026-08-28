@@ -1,0 +1,13 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "fastuuid"
+# The upstream release this stands in for; LiteLLM pins no floor of its own.
+version = "0.14.0"
+description = "Pure-Python stand-in for fastuuid, for free-threaded CPython (see docs/adr/0006-free-threaded-python-only.md)"
+requires-python = ">=3.14"
+
+[tool.setuptools]
+py-modules = ["fastuuid"]

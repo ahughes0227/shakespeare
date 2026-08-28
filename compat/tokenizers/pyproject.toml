@@ -1,0 +1,13 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tokenizers"
+# The upstream release this stands in for; LiteLLM requires >=0.21.0,<1.0.
+version = "0.23.1"
+description = "Pure-Python stand-in for tokenizers, for free-threaded CPython (see docs/adr/0006-free-threaded-python-only.md)"
+requires-python = ">=3.14"
+
+[tool.setuptools]
+py-modules = ["tokenizers"]
