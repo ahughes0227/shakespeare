@@ -21,8 +21,8 @@ from system.canary import (
     run_case,
 )
 from system.cli import app
+from system.components.pure_transform.plans import RenameEntry
 from system.contracts import ChangeAction, ChangePlan
-from system.domain.planning import RenameEntry
 from typer.testing import CliRunner
 
 from harness import INVOICES, build, seed_invoices

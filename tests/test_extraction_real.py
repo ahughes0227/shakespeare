@@ -11,8 +11,8 @@ import shutil
 from pathlib import Path
 
 import pytest
-from system.domain.extraction import Backend, extract
-from system.domain.filesystem import scan
+from system.components.content_extract.extraction import Backend, extract
+from system.components.readonly_scan.inspection import scan
 
 from fixtures.build import build_tree, cleanup
 
@@ -106,7 +106,7 @@ class TestDegradation:
 
     def test_char_limit_is_honoured(self, tree) -> None:
         """An unbounded document must not become an unbounded prompt."""
-        from system.domain.extraction import ExtractOptions
+        from system.components.content_extract.extraction import ExtractOptions
 
         _, made = tree
         unclipped = _extract(

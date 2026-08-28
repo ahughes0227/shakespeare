@@ -12,8 +12,8 @@ from pathlib import Path
 import pytest
 from system.capabilities import CapabilityRegistry
 from system.components.builtin import build_registry
+from system.components.filesystem_mutation import mutation
 from system.contracts import ChangeAction
-from system.domain import mutation
 from system.runtime.audit import AuditStore
 from system.runtime.engine import Runtime
 from system.runtime.executor import Executor

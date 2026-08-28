@@ -11,8 +11,8 @@ from pathlib import Path
 
 import pytest
 from system.components.builtin import build_registry
+from system.components.record_store import storage as records
 from system.contracts import BudgetEnvelope, Composition, DomainSpec, Invocation
-from system.domain import records
 from system.runtime.executor import Budget, Executor
 from system.runtime.verifier import Verifier
 
@@ -210,7 +210,7 @@ class TestAnUnbalancedPlanNamesItsCause:
     """Two different failures wear the same counts, and only one of them is losing work."""
 
     def _assemble(self, entries_share_ids: bool):
-        from system.domain.planning import ScannedItem, assemble_plan
+        from system.components.pure_transform.plans import ScannedItem, assemble_plan
 
         scanned = tuple(
             ScannedItem(
@@ -233,7 +233,7 @@ class TestAnUnbalancedPlanNamesItsCause:
         )
 
     def test_shared_identities_are_reported_as_shared(self) -> None:
-        from system.domain.planning import AssemblyError
+        from system.components.pure_transform.plans import AssemblyError
 
         with pytest.raises(AssemblyError, match="share an item_id"):
             self._assemble(entries_share_ids=True)

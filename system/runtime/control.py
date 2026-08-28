@@ -25,6 +25,7 @@ from uuid import uuid4
 
 from ..capabilities import CapabilityRegistry, CapabilityRunner, CapabilitySpec
 from ..capabilities.runner import CapabilityOutcome
+from ..components.filesystem_mutation import mutation
 from ..contracts import (
     ChangePlan,
     ErrorCode,
@@ -32,7 +33,6 @@ from ..contracts import (
     content_digest,
     utc_now,
 )
-from ..domain import mutation
 from .artifacts import ArtifactStore
 from .audit import AuditStore
 from .gating import GateEvaluator

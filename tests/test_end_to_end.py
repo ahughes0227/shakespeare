@@ -17,8 +17,8 @@ from system.agent import ModelCapabilityAgent
 from system.capabilities import CapabilityRegistry
 from system.capabilities.runner import Organization
 from system.components.builtin import build_registry
+from system.components.readonly_scan.inspection import scan
 from system.contracts import ChangeAction, RequestContract, RouteDecision
-from system.domain.filesystem import scan
 from system.gateway import FakeGateway, ModelProfile
 from system.planner import CapabilityChoice, GoalChoice, Judgment, ModelGoalPlanner
 from system.prompts import PromptStore

@@ -157,7 +157,7 @@ def check_convention_followed(obligation_id: str, payload: dict[str, Any]) -> Ob
     them, and must match. This compares the pre-collision render on both sides, because
     collision resolution legitimately rewrites a name and re-rendering would not.
     """
-    from ..domain import naming
+    from ..components.pure_transform import naming
 
     spec_payload = payload.get("spec")
     rows = payload.get("results") or []

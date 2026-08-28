@@ -4,11 +4,16 @@ import pathlib
 
 import pytest
 from system.components.builtin import BUILTIN, RUNTIME_ONLY, build_registry
+from system.components.content_extract.extraction import Backend, extract
+from system.components.pure_transform.plans import (
+    AssemblyError,
+    PlannedName,
+    ScannedItem,
+    assemble_plan,
+)
+from system.components.readonly_scan.inspection import scan
 from system.components.runners import RunnerError, allowlist, pure_transform
 from system.contracts import ChangeAction, OperatorFamily
-from system.domain.extraction import Backend, extract
-from system.domain.filesystem import scan
-from system.domain.planning import AssemblyError, PlannedName, ScannedItem, assemble_plan
 from system.runtime.checks import run_check
 
 

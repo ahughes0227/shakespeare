@@ -17,6 +17,7 @@ from typing import Any
 from uuid import uuid4
 
 from ..capabilities import CapabilityRegistry, CapabilityRunner
+from ..components.filesystem_mutation import mutation
 from ..components.registry import OperatorRegistry
 from ..contracts import (
     Bound,
@@ -28,7 +29,6 @@ from ..contracts import (
     RequestContract,
     content_digest,
 )
-from ..domain import mutation
 from ..prompts import PromptStore
 from ..workflows import RegisteredWorkflow, WorkflowRegistry
 from .artifacts import ArtifactStore

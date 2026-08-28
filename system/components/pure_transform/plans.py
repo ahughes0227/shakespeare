@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from ..contracts import (
+from ...contracts import (
     ChangeAction,
     ChangeEntry,
     ChangePlan,

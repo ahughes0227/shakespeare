@@ -66,7 +66,7 @@ def values_for(
 
     Item ids are content-addressed, so these must be built after the tree is seeded.
     """
-    from system.domain.filesystem import scan
+    from system.components.readonly_scan.inspection import scan
 
     contents = contents or INVOICES
     resolved: list[dict[str, Any]] = []

@@ -5,8 +5,7 @@ from __future__ import annotations
 import pathlib
 
 import pytest
-from system.contracts import ChangeAction, ChangePlan
-from system.domain.mutation import (
+from system.components.filesystem_mutation.mutation import (
     MutationError,
     commit,
     discard,
@@ -14,7 +13,8 @@ from system.domain.mutation import (
     stage_plan,
     verify_tree,
 )
-from system.domain.planning import RenameEntry
+from system.components.pure_transform.plans import RenameEntry
+from system.contracts import ChangeAction, ChangePlan
 
 
 def _tree(root: pathlib.Path) -> dict[str, str]:

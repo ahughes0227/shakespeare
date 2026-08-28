@@ -12,8 +12,8 @@ import shutil
 from pathlib import Path
 from uuid import uuid4
 
-from ..contracts import ChangeAction, ChangePlan, ReversalRecord
-from .filesystem import digest_file
+from ...contracts import ChangeAction, ChangePlan, ReversalRecord
+from ..readonly_scan.inspection import digest_file
 
 
 class MutationError(RuntimeError):

@@ -18,8 +18,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, TypedDict
 
+from ..components.filesystem_mutation import mutation
 from ..contracts import RequestContract
-from ..domain import mutation
 from .engine import RunResult, Runtime
 
 

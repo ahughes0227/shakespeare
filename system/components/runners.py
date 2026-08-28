@@ -17,8 +17,13 @@ from typing import Any
 
 from pydantic import ValidationError
 
+from ..components.content_extract import extraction
+from ..components.filesystem_mutation import mutation
+from ..components.pure_transform import naming, text
+from ..components.pure_transform import plans as planning
+from ..components.readonly_scan import inspection as filesystem
+from ..components.record_store import storage as records
 from ..contracts import ChangeAction, ChangePlan, OperatorFamily, ReversalRecord
-from ..domain import extraction, filesystem, mutation, naming, planning, records, text
 from ..runtime import checks
 
 Operation = Callable[[dict[str, Any], Path], dict[str, Any]]

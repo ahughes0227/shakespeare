@@ -12,7 +12,7 @@ from pathlib import Path
 
 from pydantic import Field
 
-from ..contracts import Contract
+from ...contracts import Contract
 
 
 class Backend(StrEnum):

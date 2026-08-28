@@ -10,7 +10,7 @@ import hashlib
 import mimetypes
 from pathlib import Path
 
-from .planning import ScannedItem
+from ..pure_transform.plans import ScannedItem
 
 _CHUNK = 1 << 20
 #: Skipped everywhere: these are never user documents and would pollute accounting.

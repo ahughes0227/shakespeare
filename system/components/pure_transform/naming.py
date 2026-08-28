@@ -16,7 +16,7 @@ from typing import Any
 
 from pydantic import Field, field_validator
 
-from ..contracts import Contract, content_digest
+from ...contracts import Contract, content_digest
 
 #: Illegal on Windows, and `/` on POSIX.  We apply the union so a plan renders identically
 #: on every platform, which matters because a plan is portable data.

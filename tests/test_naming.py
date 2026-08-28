@@ -9,7 +9,7 @@ from __future__ import annotations
 import random
 
 import pytest
-from system.domain.naming import (
+from system.components.pure_transform.naming import (
     Candidate,
     CasePolicy,
     CollisionPolicy,
