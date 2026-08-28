@@ -1,9 +1,4 @@
-"""fs.scan — walk an input tree and inventory every file deterministically.
-
-Every operator module holds the same five things in this order: what it is, what it takes,
-what it produces, and how it runs. The behaviour it calls lives in this family's own logic
-modules; nothing here does the work itself.
-"""
+"""fs.scan — walk an input tree and inventory every file deterministically."""
 
 from __future__ import annotations
 

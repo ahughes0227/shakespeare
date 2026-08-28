@@ -1,9 +1,6 @@
-"""batch.window — take the next slice of work not yet done, so a large set can be processed in
-windows.
+"""batch.window — take the next slice of work not yet done.
 
-Every operator module holds the same five things in this order: what it is, what it takes,
-what it produces, and how it runs. The behaviour it calls lives in this family's own logic
-modules; nothing here does the work itself.
+So that a large set can be processed in windows.
 """
 
 from __future__ import annotations

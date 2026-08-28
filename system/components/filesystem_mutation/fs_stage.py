@@ -1,9 +1,4 @@
-"""fs.stage — materialise a plan into a staging tree by copying.
-
-Every operator module holds the same five things in this order: what it is, what it takes,
-what it produces, and how it runs. The behaviour it calls lives in this family's own logic
-modules; nothing here does the work itself.
-"""
+"""fs.stage — materialise a plan into a staging tree by copying."""
 
 from __future__ import annotations
 

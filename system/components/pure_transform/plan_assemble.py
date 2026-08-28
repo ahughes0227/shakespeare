@@ -1,9 +1,4 @@
-"""plan.assemble — assemble a ChangePlan and enforce balanced accounting.
-
-Every operator module holds the same five things in this order: what it is, what it takes,
-what it produces, and how it runs. The behaviour it calls lives in this family's own logic
-modules; nothing here does the work itself.
-"""
+"""plan.assemble — assemble a ChangePlan and enforce balanced accounting."""
 
 from __future__ import annotations
 

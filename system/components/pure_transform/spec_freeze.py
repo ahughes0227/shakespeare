@@ -1,9 +1,4 @@
-"""spec.freeze — validate a proposed naming convention and freeze it under a digest.
-
-Every operator module holds the same five things in this order: what it is, what it takes,
-what it produces, and how it runs. The behaviour it calls lives in this family's own logic
-modules; nothing here does the work itself.
-"""
+"""spec.freeze — validate a proposed naming convention and freeze it under a digest."""
 
 from __future__ import annotations
 

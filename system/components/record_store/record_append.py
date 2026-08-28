@@ -1,9 +1,7 @@
-"""record.append — store one row per item in the run's record table, replacing any row already held
-for that item.
+"""record.append — store one row per item.
 
-Every operator module holds the same five things in this order: what it is, what it takes,
-what it produces, and how it runs. The behaviour it calls lives in this family's own logic
-modules; nothing here does the work itself.
+A row replaces any already held for that item, so a document read twice leaves one
+record and a correction supersedes what it corrects.
 """
 
 from __future__ import annotations
@@ -15,7 +13,7 @@ from pydantic import Field
 
 from ...contracts import OperatorFamily, RiskLevel
 from ..arguments import OperatorInput
-from . import storage as records
+from . import records
 
 NAME = "record.append"
 FAMILY = OperatorFamily.RECORD_STORE

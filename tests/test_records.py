@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 from system.components.catalog import build_registry
-from system.components.record_store import storage as records
+from system.components.record_store import records
 from system.contracts import BudgetEnvelope, Composition, DomainSpec, Invocation
 from system.runtime.executor import Budget, Executor
 from system.runtime.verifier import Verifier

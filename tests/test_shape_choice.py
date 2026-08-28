@@ -201,7 +201,7 @@ class TestTheDurableShapeWorks:
 
     def test_the_table_outlives_the_response_that_filled_it(self, tmp_path: Path) -> None:
         """A batch that fails costs itself, not the run's progress."""
-        from system.components.record_store import storage as records
+        from system.components.record_store import records
 
         workspace = tmp_path / "work"
         records.append(

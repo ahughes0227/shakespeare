@@ -1,9 +1,6 @@
-"""record.read — read back every stored row, so later work runs from the table rather than from a
-model response.
+"""record.read — read the stored table back.
 
-Every operator module holds the same five things in this order: what it is, what it takes,
-what it produces, and how it runs. The behaviour it calls lives in this family's own logic
-modules; nothing here does the work itself.
+So that later work runs from the table rather than from a model response.
 """
 
 from __future__ import annotations
@@ -15,7 +12,7 @@ from pydantic import Field
 
 from ...contracts import OperatorFamily, RiskLevel
 from ..arguments import OperatorInput
-from . import storage as records
+from . import records
 
 NAME = "record.read"
 FAMILY = OperatorFamily.RECORD_STORE

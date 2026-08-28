@@ -1,9 +1,6 @@
-"""schedule.plan — size the next batch of work from what earlier batches actually cost, or report
-that the whole set already fits.
+"""schedule.plan — size the next batch from what earlier batches cost.
 
-Every operator module holds the same five things in this order: what it is, what it takes,
-what it produces, and how it runs. The behaviour it calls lives in this family's own logic
-modules; nothing here does the work itself.
+Or report that the whole set already fits in one response.
 """
 
 from __future__ import annotations
