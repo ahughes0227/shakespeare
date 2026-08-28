@@ -251,7 +251,7 @@ class Executor:
                 # output back into it, mirroring the catalog's `produces` list into
                 # `bindings`. Saying only "no resolved source" left the next round to
                 # guess; naming what is actually bindable ends it in one.
-                from ..components.arguments import OUTPUT_KEYS
+                from ..components.catalog import OUTPUT_KEYS
 
                 bindable = _bindable(arguments)
                 if source in OUTPUT_KEYS.get(invocation.operator, ()):
@@ -419,7 +419,7 @@ def _explain(
 
 def _required_of(operator: str) -> frozenset[str]:
     """Argument names an operator cannot run without."""
-    from ..components.arguments import INPUT_MODELS
+    from ..components.catalog import INPUT_MODELS
 
     model = INPUT_MODELS.get(operator)
     if model is None:

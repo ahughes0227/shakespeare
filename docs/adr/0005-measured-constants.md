@@ -119,7 +119,24 @@ When no floor reaches the precision at all, it says so rather than proposing a h
 because at that point the claims are not worth anything and raising the floor will not fix
 that.
 
-### 9. `max_goal_attempts` needed no new measurement at all
+### 9. A choice between shapes is measured like a constant is
+
+The planner now decides between `resolve` and `transcribe` for the `named` goal, using the
+corpus size and each candidate's *declared* per-item cost. That is the same arithmetic the
+scheduler used to do privately, and it had the same gap: computed, shown to a model, and
+never checked against what happened.
+
+Only goals that several capabilities could answer are recorded. A goal with one candidate
+was not chosen for, and a foregone conclusion in with the real decisions makes a shape look
+reliable because most of its record was never in doubt.
+
+The corpus size is the fact that was missing; everything else joins from tables the log
+already had. What is reported is the goal's own gate result rather than the run's outcome —
+a later goal failing says nothing about this pick — with the run's total cost shown beside
+it and labelled as the run's, because a run's spend cannot honestly be attributed to one
+goal's choice.
+
+### 10. `max_goal_attempts` needed no new measurement at all
 
 Whether an attempt ever recovered is already recorded in `stage_attempts` and
 `stage_verdicts`. `measurements recovery` reads it: attempts by number, the deepest one
@@ -130,9 +147,10 @@ evidence rather than an argument with intuition.
 
 ## Consequences
 
-Runs record what their batches cost, `calibrate` keeps its claims instead of printing them,
-and `measurements propose` says which declared constant the accumulated evidence supports.
-The offline suite grew by 31 tests.
+Runs record what their batches cost and which shape was chosen for the one goal that has a
+choice, `calibrate` keeps its claims instead of printing them, and `measurements propose`
+says which declared constant the accumulated evidence supports. The offline suite grew by
+43 tests.
 
 The append-only trigger installer now covers only tables that exist. It is still derived
 from the model list so it cannot drift from it, but a historical migration runs against a
@@ -149,6 +167,9 @@ ignoring what is present would make every past migration fail the moment a table
 - **Confidence is measured only under `calibrate`**, which needs a truth file. An ordinary
   run makes claims nobody checks, so the floor accumulates evidence only as fast as someone
   builds labelled corpora.
+- **A shape choice is recorded but nothing scores it.** `measurements shapes` reports what
+  followed each pick; deciding that one shape is simply better is left to a person, because
+  the runs are not controlled — a corpus, a model and a prompt all vary underneath.
 - **Per-item cost is still not measured per item.** Decision 6 detects the case and refuses
   to describe it; describing it would mean weighing each item's own cost, which is a
   per-item observation the runtime does not currently make.

@@ -268,14 +268,13 @@ class TestDeclaredOutputs:
     """
 
     def test_every_composable_operator_declares_its_outputs(self) -> None:
-        from system.components.arguments import OUTPUT_KEYS
-        from system.components.catalog import RUNTIME_ONLY
+        from system.components.catalog import OUTPUT_KEYS, RUNTIME_ONLY
 
         composable = {name for name in BUILTIN if name not in RUNTIME_ONLY}
         assert composable == set(OUTPUT_KEYS)
 
     def test_declared_outputs_match_what_the_runner_returns(self, tmp_path: pathlib.Path) -> None:
-        from system.components.arguments import OUTPUT_KEYS
+        from system.components.catalog import OUTPUT_KEYS
         from system.components.runners import pure_transform, readonly_scan
 
         source = tmp_path / "in"
@@ -338,3 +337,64 @@ class TestUnreadableAccounting:
 
     def test_no_skipped_files_changes_nothing(self) -> None:
         assert len(self._plan(()).entries) == 1
+
+
+class TestEveryOperatorHasTheSameShape:
+    """A new operator is a new file, so the file has to be a form somebody can fill in.
+
+    The interface used to be spread over a spec, an argument model, a produced-key table
+    and a dispatch table, each maintained by hand and each able to drift — which is how a
+    family came to declare an operation that had been renamed. All four are read from the
+    module now, so these check the form rather than the copies.
+    """
+
+    @staticmethod
+    def _modules():
+        from system.components.catalog import MODULES
+
+        return MODULES
+
+    def test_every_module_declares_the_same_things(self) -> None:
+        for name, module in self._modules().items():
+            for field in (
+                "NAME", "FAMILY", "OPERATION", "SUMMARY", "FEATURES",
+                "SIDE_EFFECTS", "RISK", "IDEMPOTENT", "TIMEOUT_SECONDS",
+                "COMPOSABLE", "Input", "OUTPUTS", "run",
+            ):
+                assert hasattr(module, field), f"{name} does not declare {field}"
+
+    def test_a_module_lives_in_the_family_it_declares(self) -> None:
+        for name, module in self._modules().items():
+            assert module.__name__.split(".")[-2] == module.FAMILY.value, name
+
+    def test_a_module_is_named_for_the_operator_it_defines(self) -> None:
+        for name, module in self._modules().items():
+            assert module.__name__.split(".")[-1] == name.replace(".", "_")
+
+    def test_every_operation_is_one_the_family_actually_runs(self) -> None:
+        from system.components.runners import allowlist
+
+        for name, module in self._modules().items():
+            assert module.OPERATION in allowlist(module.FAMILY), name
+
+    def test_a_composable_operator_declares_its_interface(self) -> None:
+        for name, module in self._modules().items():
+            if not module.COMPOSABLE:
+                continue
+            assert module.Input is not None, f"{name} has no argument model"
+            assert module.OUTPUTS, f"{name} declares nothing it produces"
+
+    def test_a_runtime_only_operator_offers_no_interface(self) -> None:
+        """It writes, so no composition may name it and none needs its shape."""
+        from system.components.catalog import RUNTIME_ONLY
+
+        for name, module in self._modules().items():
+            if name in RUNTIME_ONLY:
+                assert module.Input is None and not module.OUTPUTS, name
+
+    def test_only_a_writing_family_declares_side_effects(self) -> None:
+        from system.components.registry import WRITING_FAMILIES
+
+        for name, module in self._modules().items():
+            if module.SIDE_EFFECTS:
+                assert module.FAMILY in WRITING_FAMILIES, name

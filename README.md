@@ -78,7 +78,7 @@ uv run shakespeare apply --plan plan.json -i ./in -o ./out
 uv run shakespeare requests list | review <id> | approve <id> | deny <id>
 uv run shakespeare prompts list | promote <sig> --candidate 1.1.0 --score 0.9
 uv run shakespeare canary list | record <name> | run
-uv run shakespeare measurements list | propose | recovery
+uv run shakespeare measurements list | propose | recovery | shapes
 ```
 
 `replay` swaps only the planner and the domain agents for journal-backed ones — the same
@@ -97,7 +97,9 @@ prompt, a new operator version, or a provider changing silently behind an alias.
 run already measures what a batch costs and every run used to throw it away, so the
 estimate each one starts from is whatever number a person typed into a manifest. Runs now
 record those observations; `propose` says which constant the accumulated evidence supports
-and prints the file to write it into. Nothing reads the ledger during a run — a measured
+and prints the file to write it into. `shapes` answers the other half: where several
+capabilities could serve a goal, the planner picks between them from their *declared* costs,
+and this is what followed each pick. Nothing reads the ledger during a run — a measured
 constant reaches a run only as a manifest edit, which is what keeps a run determined by
 its journal and keeps `replay` a statement about what was recorded rather than about what
 a database happened to hold that day.

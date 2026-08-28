@@ -12,6 +12,7 @@ import re
 import unicodedata
 from datetime import date, datetime
 from enum import StrEnum
+from pathlib import PurePosixPath
 from typing import Any
 
 from pydantic import Field, field_validator
@@ -425,3 +426,51 @@ def resolve_collisions(
         )
 
     return tuple(sorted(resolutions, key=lambda item: item.item_id))
+
+
+def render_items(arguments: dict[str, Any]) -> list[dict[str, Any]]:
+    """Items to render: supplied explicitly, or derived from the inventory.
+
+    Deriving them is what makes a purely sequential rename cost one invocation and no
+    parameters — the agent never has to transcribe the inventory to name files by order.
+    """
+    supplied = (
+        arguments.get("items")
+        or arguments.get("records")
+        or arguments.get("scanned")
+        or arguments.get("inventory")
+    )
+    resolved: list[dict[str, Any]] = []
+    for item in supplied or ():
+        # Shape-driven rather than key-driven: an inventory entry carries `relpath`, a
+        # render item carries `directory`/`extension`. Both reach this operator under the
+        # name `items`, so distinguishing them by key alone would be ambiguous.
+        if "relpath" in item and "extension" not in item:
+            relpath = PurePosixPath(item["relpath"])
+            parent = str(relpath.parent)
+            resolved.append(
+                {
+                    "item_id": item["item_id"],
+                    "directory": "" if parent == "." else parent,
+                    "extension": relpath.suffix,
+                    "values": item.get("values", {}),
+                    "confidences": item.get("confidences", {}),
+                }
+            )
+        else:
+            resolved.append(dict(item))
+    return resolved
+
+
+def policy_from(arguments: dict[str, Any]) -> NamePolicy:
+    naming_config = (arguments.get("config") or {}).get("naming") or {}
+    return NamePolicy.model_validate(
+        arguments.get(
+            "policy",
+            {
+                key: value
+                for key, value in naming_config.items()
+                if key in NamePolicy.model_fields
+            },
+        )
+    )

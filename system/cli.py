@@ -652,8 +652,7 @@ def operator_show(name: str) -> None:
     behaviour.
     """
     from .components import families
-    from .components.arguments import OUTPUT_KEYS, argument_summary
-    from .components.catalog import RUNTIME_ONLY
+    from .components.catalog import OUTPUT_KEYS, RUNTIME_ONLY, argument_summary
 
     services = _services(planner=_no_model(), agents={})
     if name not in services.operators:
@@ -1154,12 +1153,14 @@ def measurements_shapes(
         rows, costs=services.audit.run_costs(runs), endings=services.audit.run_endings(runs)
     )
     table = Table(title="Shapes the planner chose, and what followed")
-    table.add_column("capability", style="bold")
+    # Folded rather than truncated: the version is the half that gets cut off, and it is
+    # the half that says whether the evidence is about what is declared now.
+    table.add_column("capability", style="bold", overflow="fold")
     table.add_column("chosen", justify="right")
-    table.add_column("goal satisfied", justify="right")
+    table.add_column("satisfied", justify="right")
     table.add_column("corpus", justify="right")
     table.add_column("runs ended")
-    table.add_column("median run cost", justify="right")
+    table.add_column("run cost", justify="right")
     for shape in found:
         low, high = shape.corpus
         table.add_row(
@@ -1168,7 +1169,7 @@ def measurements_shapes(
             f"{shape.satisfied}/{shape.chosen} ({shape.rate:.0%})",
             f"{low}" if low == high else f"{low}–{high}",
             " ".join(f"{name}:{count}" for name, count in sorted(shape.endings.items())),
-            f"${shape.median_run_cost:.4f}" if shape.median_run_cost is not None else "—",
+            f"${shape.median_run_cost:.2f}" if shape.median_run_cost is not None else "—",
         )
     console.print(table)
     console.print(

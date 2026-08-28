@@ -576,7 +576,7 @@ class TestWhetherTheShapeChosenWasTheRightOne:
             {**choice(subject="transcribe@1.0.0", corpus=60, satisfied=False).model_dump(),
              "run_id": "run-9"}
         ]
-        found = measurements.shapes(rows, costs={}, endings={})
+        found = memory.shapes(rows, costs={}, endings={})
         assert found[0].chosen == 5
         assert found[0].satisfied == 4
         assert found[0].rate == 0.8
@@ -588,7 +588,7 @@ class TestWhetherTheShapeChosenWasTheRightOne:
              "run_id": f"run-{size}"}
             for size in (3, 12, 60)
         ]
-        found = measurements.shapes(rows, costs={}, endings={})
+        found = memory.shapes(rows, costs={}, endings={})
         assert found[0].corpus == (3, 60)
 
     def test_run_cost_is_the_median_rather_than_the_mean(self) -> None:
@@ -598,7 +598,7 @@ class TestWhetherTheShapeChosenWasTheRightOne:
              "run_id": run}
             for run in ("a", "b", "c")
         ]
-        found = measurements.shapes(
+        found = memory.shapes(
             rows, costs={"a": 0.08, "b": 0.09, "c": 9.00}, endings={}
         )
         assert found[0].median_run_cost == 0.09
@@ -608,7 +608,7 @@ class TestWhetherTheShapeChosenWasTheRightOne:
             {**choice(subject="resolve@1.0.0", corpus=60, satisfied=True).model_dump(),
              "run_id": "a"}
         ]
-        found = measurements.shapes(rows, costs={}, endings={})
+        found = memory.shapes(rows, costs={}, endings={})
         assert found[0].endings == {"unfinished": 1}
 
     def test_shapes_are_compared_separately_rather_than_pooled(self) -> None:
@@ -618,57 +618,58 @@ class TestWhetherTheShapeChosenWasTheRightOne:
             {**choice(subject="transcribe@1.0.0", corpus=60, satisfied=True).model_dump(),
              "run_id": "b"},
         ]
-        found = measurements.shapes(rows, costs={}, endings={})
+        found = memory.shapes(rows, costs={}, endings={})
         assert [shape.subject for shape in found] == ["resolve@1.0.0", "transcribe@1.0.0"]
         assert [shape.rate for shape in found] == [0.0, 1.0]
 
 
 class TestOnlyARealChoiceIsRecorded:
-    def test_a_goal_with_one_candidate_records_nothing(self, tmp_path: Path) -> None:
-        """It was not chosen for, and a foregone conclusion is not evidence about judgment.
+    """`named` is the one goal several capabilities can answer, so it is the only one
+    where the planner made a decision. Recording the settled goals too would bury the
+    handful of real choices under a pile of foregone conclusions."""
 
-        The rename workflow gives most goals exactly one capability, so recording those
-        would bury the handful of real decisions under a pile of settled ones.
-        """
+    def run_once(self, tmp_path: Path) -> Any:
         from harness import build
-        from system.contracts import MeasurementKind
 
         runtime, request, audit, _ = build(tmp_path)
-        runtime.run(request, commit=False)
-        assert audit.measurements(kind=MeasurementKind.SHAPE_CHOICE) == []
+        result = runtime.run(request, commit=False)
+        return result, audit
 
-    def test_a_goal_with_several_candidates_records_the_choice(self, tmp_path: Path) -> None:
-        from harness import build
+    def test_a_real_choice_is_recorded_with_what_it_was_chosen_against(
+        self, tmp_path: Path
+    ) -> None:
         from system.contracts import MeasurementKind
-        from system.runtime.control import Chosen
 
-        runtime, request, audit, _ = build(tmp_path)
-        original = runtime.__dict__.get("_probe")
-        assert original is None  # nothing already patched
-
-        # The rename workflow declares one capability per goal, so a second candidate has
-        # to be simulated to exercise the recording path end to end.
-        from system.runtime import control
-
-        real = control.Controller._choose_capability
-
-        def two_candidates(self: Any, goal: Any) -> Chosen:
-            chosen = real(self, goal)
-            return Chosen(
-                capability=chosen.capability,
-                impediment=chosen.impediment,
-                candidates=2,
-                corpus=chosen.corpus if chosen.corpus is not None else 3,
-            )
-
-        control.Controller._choose_capability = two_candidates  # type: ignore[method-assign]
-        try:
-            runtime.run(request, commit=False)
-        finally:
-            control.Controller._choose_capability = real  # type: ignore[method-assign]
-
+        _, audit = self.run_once(tmp_path)
         recorded = audit.measurements(kind=MeasurementKind.SHAPE_CHOICE)
-        assert recorded, "a goal with a real choice was recorded"
-        assert all(row["count"] == 2 for row in recorded)
-        assert all(row["value"] > 0 for row in recorded)
-        assert all("@" in row["subject"] for row in recorded)
+        assert recorded, "the workflow has a goal two capabilities can answer"
+        for row in recorded:
+            assert row["count"] >= 2, "recorded only where something was decided"
+            assert row["value"] > 0, "the corpus size the choice was made against"
+            assert "@" in row["subject"], "the ref, so a version change invalidates it"
+
+    def test_goals_with_a_single_candidate_are_not_recorded(self, tmp_path: Path) -> None:
+        from system.contracts import MeasurementKind
+
+        result, audit = self.run_once(tmp_path)
+        recorded = audit.measurements(kind=MeasurementKind.SHAPE_CHOICE)
+        chosen_between = {row["subject"].split("@")[0] for row in recorded}
+        # Every other goal in the rename spine names exactly one capability.
+        assert chosen_between <= {"resolve", "transcribe"}
+        assert len(recorded) < len(result.attempts)
+
+    def test_the_recorded_outcome_is_whether_that_goal_was_satisfied(
+        self, tmp_path: Path
+    ) -> None:
+        """Not whether the run committed: a later goal failing says nothing about this pick."""
+        from system.contracts import MeasurementKind
+
+        result, audit = self.run_once(tmp_path)
+        recorded = audit.measurements(kind=MeasurementKind.SHAPE_CHOICE)
+        satisfied = {
+            attempt.capability: attempt.gate.satisfied
+            for attempt in result.attempts
+            if attempt.chosen_from >= 2
+        }
+        for row in recorded:
+            assert row["outcome"] == satisfied[row["subject"].split("@")[0]]
