@@ -87,11 +87,48 @@ def profile_from_environment(profile_id: str = "default") -> ModelProfile:
             f"{model!r} is a moving alias; a run must pin a fixed model to stay reproducible",
             ErrorCode.MODEL_PERMANENT,
         )
+    _refuse_a_model_whose_tokens_cannot_be_counted(model)
     return ModelProfile(
         profile_id=profile_id,
         model=model,
         api_base=os.environ.get("SHAKESPEARE_API_BASE") or None,
     )
+
+
+def _refuse_a_model_whose_tokens_cannot_be_counted(model: str) -> None:
+    """Refuse a model this interpreter has no tokenizer for.
+
+    `tokenizers` has no free-threaded build, so `compat/tokenizers` stands in for it and
+    refuses rather than approximate (ADR 0006). LiteLLM catches that refusal, logs it at
+    debug, and counts with tiktoken anyway — so a Claude, Cohere or Llama model would be
+    counted by the wrong tokenizer, and the wrong number would reach the bill and the
+    batch sizer with nothing anywhere saying it was wrong. A run that cannot count its own
+    tokens should not start.
+
+    Which models those are is LiteLLM's question, not ours, so this asks LiteLLM's own
+    selector instead of keeping a copy of its list to drift from.
+    """
+    try:
+        from tokenizers import TokenizerUnavailable
+    except ImportError:
+        # The real tokenizers is installed, so every model LiteLLM supports can be
+        # counted exactly and there is nothing to refuse. Returning here also keeps this
+        # check off the network: with the real library, asking would download one.
+        return
+
+    from litellm.utils import _return_huggingface_tokenizer
+
+    try:
+        _return_huggingface_tokenizer(model)
+    except TokenizerUnavailable as exc:
+        raise GatewayError(
+            f"{model!r} is counted by a HuggingFace tokenizer, and there is no "
+            f"free-threaded build of `tokenizers` for this interpreter to count it with. "
+            f"LiteLLM would silently fall back to tiktoken and bill the run against the "
+            f"wrong tokenizer. Pin an OpenAI-shaped model — `openrouter/openai/...` — or "
+            f"see docs/adr/0006-free-threaded-python-only.md to build the real one.",
+            ErrorCode.MODEL_PERMANENT,
+        ) from exc
 
 
 class LiteLLMGateway:

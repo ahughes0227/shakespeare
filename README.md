@@ -56,15 +56,34 @@ Not the agents. Consistency is a property of code and of the commit:
 
 ## Install and run
 
+Shakespeare runs on **free-threaded CPython 3.14 or newer, and nothing else**.
+`.python-version` pins `3.14t`, so `uv` fetches the right interpreter on its own, and
+`import system` refuses an interpreter holding the GIL rather than running under an
+execution model it was not tested on.
+
+`PYTHON_GIL=0` is not optional. lxml and SQLAlchemy's C extension both load without
+declaring free-threaded support, which switches the GIL back on part-way through a run;
+pinning it off at process start is what stops them. See
+[ADR 0006](docs/adr/0006-free-threaded-python-only.md), which also covers the three
+pure-Python stand-ins in `compat/` that free-threading cost us.
+
 ```bash
 uv sync --group dev
-export SHAKESPEARE_MODEL=openrouter/openai/gpt-5-mini   # a fixed model; aliases are refused
+export PYTHON_GIL=0                                     # required; see ADR 0006
+export SHAKESPEARE_MODEL=openrouter/openai/gpt-5-mini   # fixed, and tiktoken-counted
 uv run shakespeare run \
   --prompt "rename these invoices to YYYYMM, vendor, invoice number, PO number" \
   --input ./invoices --output ./renamed
 ```
 
 `run` plans, previews, and asks before committing. `plan` stops before any write.
+
+Moving aliases are refused. So is any model this install cannot count tokens for: where
+`vendor/`'s free-threaded `tokenizers` wheel applies — macOS arm64 on `cp314t` — every
+model LiteLLM supports is counted exactly; anywhere else the pure-Python stand-in takes
+over and Claude, Llama and Replicate models are refused rather than billed against
+tiktoken. `vendor/build-tokenizers.sh` builds the wheel for another platform. ADR 0006 has
+the detail.
 
 ```bash
 uv run shakespeare plan -p "..." -i ./in -o ./out --plan-out plan.json
@@ -157,10 +176,10 @@ payloads and bypass the envelope entirely.
 ## Development
 
 ```bash
-uv run ruff check shakespeare tests
-uv run mypy shakespeare
-uv run pytest -q
-uv run alembic upgrade head    # the audit log is migrated, never recreated
+uv run ruff check system compat tests
+uv run mypy system compat
+PYTHON_GIL=0 uv run pytest -q
+PYTHON_GIL=0 uv run alembic upgrade head    # the audit log is migrated, never recreated
 ```
 
 The suite runs offline. Every model touchpoint has a fake, and the fakes validate exactly
@@ -176,7 +195,7 @@ There is an opt-in live lane that spends money and is skipped by default, so it 
 be mistaken for coverage:
 
 ```bash
-SHAKESPEARE_LIVE=1 SHAKESPEARE_MODEL=openrouter/openai/gpt-5-mini \
+PYTHON_GIL=0 SHAKESPEARE_LIVE=1 SHAKESPEARE_MODEL=openrouter/openai/gpt-5-mini \
   uv run pytest tests/test_durability.py -k Live -s
 ```
 
