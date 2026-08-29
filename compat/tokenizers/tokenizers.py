@@ -1,17 +1,21 @@
-"""A pure-Python stand-in for `tokenizers`, so LiteLLM imports on free-threaded CPython.
+"""The fallback `tokenizers`, for platforms `vendor/`'s real wheel does not cover.
 
 `tokenizers` publishes abi3 wheels only, and abi3 does not exist for a free-threaded
-interpreter, so there is no wheel to install and the sdist fails to link (its pyo3 build
-enables abi3 unconditionally). `litellm.utils` imports `Tokenizer` at module scope, so
-without this module the gateway in `system.model_access` cannot be imported at all.
+interpreter, so there is no wheel on PyPI to install and the sdist fails to link.
+`vendor/build-tokenizers.sh` builds a real one — upstream's Rust is already free-threaded,
+only its packaging is not — but that wheel is macOS arm64 on `cp314t` and nothing else.
+Everywhere else this module is what lets `litellm.utils`, which imports `Tokenizer` at
+module scope, be imported at all.
 
 LiteLLM reaches for a HuggingFace tokenizer only when counting tokens for a model whose
 tokenizer is not tiktoken's — Claude, Cohere and Llama. Those counts cannot be
-approximated honestly, so this raises there rather than inventing a number; OpenAI-shaped
-models, which is what `SHAKESPEARE_MODEL` pins, go through tiktoken and never touch this.
+approximated honestly, so this raises rather than inventing a number, and
+`profile_from_environment` turns that refusal into one the caller actually sees: LiteLLM
+itself catches it and falls back to tiktoken. OpenAI-shaped models, which is what
+`SHAKESPEARE_MODEL` pins, go through tiktoken and never touch this.
 
-See `docs/adr/0006-free-threaded-python-only.md`. Delete this the day tokenizers
-publishes a free-threaded wheel.
+See `docs/adr/0006-free-threaded-python-only.md`. Delete this the day tokenizers publishes
+a free-threaded wheel of its own.
 """
 
 from __future__ import annotations

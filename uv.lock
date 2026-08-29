@@ -3,7 +3,8 @@ revision = 3
 requires-python = ">=3.14"
 resolution-markers = [
     "python_full_version >= '3.15'",
-    "python_full_version < '3.15'",
+    "python_full_version < '3.15' and platform_machine == 'arm64' and sys_platform == 'darwin'",
+    "(python_full_version < '3.15' and platform_machine != 'arm64') or (python_full_version < '3.15' and sys_platform != 'darwin')",
 ]
 
 [[package]]
@@ -640,6 +641,15 @@ wheels = [
 ]
 
 [[package]]
+name = "fsspec"
+version = "2026.7.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/00/78/f34251dadb8f3921264a1d9b8946f5e542014ee2614b285261b4e40e6775/fsspec-2026.7.0.tar.gz", hash = "sha256:c803c40f4cf860b49dea58ee3e1c33cb9c790520e233537e1340049f89b82a88", size = 317040, upload-time = "2026-07-28T16:34:51.052Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/fd/3c/6a2bf344106328fd04963664a60b9bb6496fc25df8e962fcdc1367285fb9/fsspec-2026.7.0-py3-none-any.whl", hash = "sha256:b57ddbafedfaef7018c1ecab32aa200a9d7ca26b77965f64e48b70061249d279", size = 206583, upload-time = "2026-07-28T16:34:49.538Z" },
+]
+
+[[package]]
 name = "funcy"
 version = "2.0"
 source = { registry = "https://pypi.org/simple" }
@@ -718,6 +728,16 @@ wheels = [
 ]
 
 [[package]]
+name = "hf-xet"
+version = "1.6.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/1b/ab/522a2ab67f27971a9d48ca666d4fca85ef7d5282d142e31fd087e27b1bbe/hf_xet-1.6.0.tar.gz", hash = "sha256:2e58454a340b3556dfa4972d5451aff4fba8dd42a236600ba1a1d2b1514f0fef", size = 920527, upload-time = "2026-08-03T22:33:13.243Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/bb/1e/c0ad437dd267a8e435bef594acf781bbc3874ff0b6435b4962d03ecf7cc4/hf_xet-1.6.0-cp314-cp314t-macosx_11_0_arm64.whl", hash = "sha256:23379c2f9ec8696d952b16414a2bae72cad86a52df869b050698ba60f538c675", size = 3867381, upload-time = "2026-08-03T22:32:49.049Z" },
+    { url = "https://files.pythonhosted.org/packages/4b/69/55b8dcf636142ae660fec1869fcac14c4da2e8412e14d6eee1523be77e9f/hf_xet-1.6.0-cp38-abi3-macosx_11_0_arm64.whl", hash = "sha256:f0906082d9932ae0c0057fa194041c22b4e2cdb46b2592ef3b91f020d62a081a", size = 3876287, upload-time = "2026-08-03T22:33:02.251Z" },
+]
+
+[[package]]
 name = "httpcore"
 version = "1.0.9"
 source = { registry = "https://pypi.org/simple" }
@@ -743,6 +763,26 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/b1/df/48c586a5fe32a0f01324ee087459e112ebb7224f646c0b5023f5e79e9956/httpx-0.28.1.tar.gz", hash = "sha256:75e98c5f16b0f35b567856f597f06ff2270a374470a5c2392242528e3e3e42fc", size = 141406, upload-time = "2024-12-06T15:37:23.222Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/2a/39/e50c7c3a983047577ee07d2a9e53faf5a69493943ec3f6a384bdc792deb2/httpx-0.28.1-py3-none-any.whl", hash = "sha256:d909fcccc110f8c7faf814ca82a9a4d816bc5a6dbfea25d6591d6985b8ba59ad", size = 73517, upload-time = "2024-12-06T15:37:21.509Z" },
+]
+
+[[package]]
+name = "huggingface-hub"
+version = "1.29.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "click" },
+    { name = "filelock" },
+    { name = "fsspec" },
+    { name = "hf-xet" },
+    { name = "httpx" },
+    { name = "packaging" },
+    { name = "pyyaml" },
+    { name = "tqdm" },
+    { name = "typing-extensions" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/64/35/42316e8f6908b6d21bc8df017cc6efba94fb5edbf99b64e28dd142325e20/huggingface_hub-1.29.0.tar.gz", hash = "sha256:6ebb385a581435325cf6d5c5b233d5d4bc91175834d99fd65dae14379b36e9ad", size = 963121, upload-time = "2026-08-27T12:18:37.432Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/4e/a5/47c2ea9b228ccbcba8467e9a64823146e8ebbad29855e591d8f5eedcc9c7/huggingface_hub-1.29.0-py3-none-any.whl", hash = "sha256:b00f7782afc14db4bc6572763810a635bdfbab8623d957bfb553bd18e03852cd", size = 795768, upload-time = "2026-08-27T12:18:35.431Z" },
 ]
 
 [[package]]
@@ -1144,7 +1184,8 @@ dependencies = [
     { name = "pydantic-settings" },
     { name = "python-dotenv" },
     { name = "tiktoken" },
-    { name = "tokenizers" },
+    { name = "tokenizers", version = "0.23.1", source = { path = "vendor/tokenizers-0.23.1-cp314-cp314t-macosx_11_0_arm64.whl" }, marker = "python_full_version < '3.15' and platform_machine == 'arm64' and sys_platform == 'darwin'" },
+    { name = "tokenizers", version = "0.23.1", source = { directory = "compat/tokenizers" }, marker = "python_full_version >= '3.15' or platform_machine != 'arm64' or sys_platform != 'darwin'" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/9c/97/c9da198af273d700bf44d7d82eb21c5b8078c82574b31856b71b1298234b/litellm-1.98.0.tar.gz", hash = "sha256:0e6ba5d645a73ca6d0ffb4e8ec539d94b6e8fad691f2a54c6819011e6d0de8bf", size = 17577139, upload-time = "2026-08-22T22:19:21.931Z" }
 wheels = [
@@ -2246,7 +2287,8 @@ dependencies = [
     { name = "rich" },
     { name = "sqlalchemy" },
     { name = "tenacity" },
-    { name = "tokenizers" },
+    { name = "tokenizers", version = "0.23.1", source = { path = "vendor/tokenizers-0.23.1-cp314-cp314t-macosx_11_0_arm64.whl" }, marker = "python_full_version < '3.15' and platform_machine == 'arm64' and sys_platform == 'darwin'" },
+    { name = "tokenizers", version = "0.23.1", source = { directory = "compat/tokenizers" }, marker = "python_full_version >= '3.15' or platform_machine != 'arm64' or sys_platform != 'darwin'" },
     { name = "typer" },
 ]
 
@@ -2291,7 +2333,8 @@ requires-dist = [
     { name = "rich", specifier = ">=13.9,<15" },
     { name = "sqlalchemy", specifier = ">=2.0,<3" },
     { name = "tenacity", specifier = ">=9,<10" },
-    { name = "tokenizers", directory = "compat/tokenizers" },
+    { name = "tokenizers", marker = "python_full_version >= '3.15' or platform_machine != 'arm64' or sys_platform != 'darwin'", directory = "compat/tokenizers" },
+    { name = "tokenizers", marker = "python_full_version < '3.15' and platform_machine == 'arm64' and sys_platform == 'darwin'", path = "vendor/tokenizers-0.23.1-cp314-cp314t-macosx_11_0_arm64.whl" },
     { name = "typer", specifier = ">=0.15,<1" },
 ]
 provides-extras = ["optimize"]
@@ -2425,7 +2468,42 @@ wheels = [
 [[package]]
 name = "tokenizers"
 version = "0.23.1"
+source = { path = "vendor/tokenizers-0.23.1-cp314-cp314t-macosx_11_0_arm64.whl" }
+resolution-markers = [
+    "python_full_version < '3.15' and platform_machine == 'arm64' and sys_platform == 'darwin'",
+]
+dependencies = [
+    { name = "huggingface-hub" },
+]
+wheels = [
+    { filename = "tokenizers-0.23.1-cp314-cp314t-macosx_11_0_arm64.whl", hash = "sha256:3213a87f6d38cde855fd3a9a44fb9e64a9166333d690cf705e0b46d428b538dc" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "datasets", marker = "extra == 'testing'" },
+    { name = "huggingface-hub", specifier = ">=0.16.4,<2.0" },
+    { name = "numpy", marker = "extra == 'testing'" },
+    { name = "pytest", marker = "extra == 'testing'" },
+    { name = "pytest-asyncio", marker = "extra == 'testing'" },
+    { name = "requests", marker = "extra == 'testing'" },
+    { name = "ruff", marker = "extra == 'testing'" },
+    { name = "setuptools-rust", marker = "extra == 'docs'" },
+    { name = "sphinx", marker = "extra == 'docs'" },
+    { name = "sphinx-rtd-theme", marker = "extra == 'docs'" },
+    { name = "tokenizers", extras = ["testing"], marker = "extra == 'dev'" },
+    { name = "ty", marker = "extra == 'testing'" },
+]
+provides-extras = ["dev", "docs", "testing"]
+
+[[package]]
+name = "tokenizers"
+version = "0.23.1"
 source = { directory = "compat/tokenizers" }
+resolution-markers = [
+    "python_full_version >= '3.15'",
+    "(python_full_version < '3.15' and platform_machine != 'arm64') or (python_full_version < '3.15' and sys_platform != 'darwin')",
+]
 
 [[package]]
 name = "tqdm"

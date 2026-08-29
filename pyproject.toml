@@ -89,13 +89,22 @@ warn_unreachable = true
 pretty = true
 ignore_missing_imports = true
 
-# Three of the accelerators in our dependency tree have no free-threaded build, and none
-# of the three can simply be dropped: `langgraph_sdk`, `litellm.utils` and `litellm._uuid`
-# each import one at module scope. orjson's build script refuses a free-threaded
-# interpreter; tokenizers and fastuuid ship abi3 wheels, which do not exist for one. All
-# three resolve to the pure-Python stand-ins in `compat/` instead of to PyPI. See
-# `docs/adr/0006-free-threaded-python-only.md`.
+# Three of the accelerators in our dependency tree publish no free-threaded wheel, and
+# none of the three can simply be dropped: `langgraph_sdk`, `litellm.utils` and
+# `litellm._uuid` each import one at module scope. orjson's build script refuses a
+# free-threaded interpreter; tokenizers and fastuuid ship abi3 wheels, and abi3 does not
+# exist for a free-threaded build. See `docs/adr/0006-free-threaded-python-only.md`.
+#
+# tokenizers is the one that could be recovered rather than replaced: its Rust already
+# declares `#[pymodule(gil_used = false)]`, so `vendor/build-tokenizers.sh` drops `abi3`
+# from its maturin config and builds the wheel HuggingFace does not publish. That wheel is
+# specific to one platform *and* one interpreter minor — a cp314t wheel is not a cp315t
+# one — so anywhere it does not apply falls back to the stand-in, and the gateway refuses
+# the models it cannot count for there.
 [tool.uv.sources]
 fastuuid = { path = "compat/fastuuid" }
 orjson = { path = "compat/orjson" }
-tokenizers = { path = "compat/tokenizers" }
+tokenizers = [
+    { path = "vendor/tokenizers-0.23.1-cp314-cp314t-macosx_11_0_arm64.whl", marker = "python_full_version < '3.15' and sys_platform == 'darwin' and platform_machine == 'arm64'" },
+    { path = "compat/tokenizers", marker = "python_full_version >= '3.15' or sys_platform != 'darwin' or platform_machine != 'arm64'" },
+]
