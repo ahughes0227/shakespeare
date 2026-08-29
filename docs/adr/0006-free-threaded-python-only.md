@@ -47,12 +47,12 @@ declaration is about thread-safety, and there are no threads. The order of work 
 whatever gets parallelised first must not be the XML or ORM path until lxml 7 and
 SQLAlchemy declare support, at which point this decision reduces to nothing.
 
-### 3. Three dependencies have no free-threaded build, and `compat/` stands in for them
+### 3. Three dependencies publish no free-threaded wheel, and `compat/` stands in for them
 
-`orjson`, `tokenizers` and `fastuuid` cannot be installed on `cp314t`. orjson's build
-script *refuses* a free-threaded interpreter outright and has never published a `t` wheel;
-tokenizers and fastuuid publish abi3 wheels, and abi3 does not exist for a free-threaded
-build, so there is nothing to install and their sdists fail to link.
+`orjson`, `tokenizers` and `fastuuid` cannot be installed from PyPI on `cp314t`. orjson's
+build script *refuses* a free-threaded interpreter outright and has never published a `t`
+wheel; tokenizers and fastuuid publish abi3 wheels, and abi3 does not exist for a
+free-threaded build, so there is nothing to install and their sdists fail to link.
 
 None of the three can be dropped, because each is imported at module scope by something we
 depend on: `langgraph_sdk` (hence `langgraph`, hence `system/runtime/durability.py`),
@@ -83,22 +83,63 @@ The three are not equally comfortable:
   stand-in encodes in 46 ms against a 23 ms floor for the stdlib's C encoder, so even a
   perfect pure-Python fast path is worth 23 ms on a call nothing on the run path makes.
   It was left alone deliberately: see *Rejected* below.
-- **tokenizers** is the one that loses something. LiteLLM reaches for a HuggingFace
-  tokenizer only to count tokens for models whose tokenizer is not tiktoken's — Claude,
-  Cohere, Llama. Those counts cannot be approximated honestly, so the stand-in raises
-  `TokenizerUnavailable` there instead of inventing a number that would become a wrong bill
-  and a wrong batch size. OpenAI-shaped models, which is what `SHAKESPEARE_MODEL` pins, go
-  through tiktoken and never touch it.
+- **tokenizers** turned out not to need standing in at all — see decision 4. The stand-in
+  remains as the fallback for platforms the wheel does not cover, and there it loses
+  something quietly. LiteLLM reaches for a HuggingFace tokenizer only to count tokens for
+  models whose tokenizer is not tiktoken's — Claude, Cohere, Llama. The stand-in raises
+  `TokenizerUnavailable` rather than inventing a number, but
+  `litellm.utils._select_tokenizer_helper` catches every exception from that selection,
+  logs it at debug and falls back to tiktoken. So a swallowed error, not a decision, would
+  decide the bill.
+
+  The refusal is therefore caught where it can still mean something:
+  `profile_from_environment` asks LiteLLM's own selector which tokenizer it wants for the
+  pinned model, and refuses the run if the answer is one this install cannot supply. A run
+  that cannot count its own tokens does not start. Asking the selector rather than keeping
+  a list of model names is what stops ours from drifting from theirs — and it means the
+  gate tracks LiteLLM's choice, not the vendor's name: `claude-3-5-sonnet` is accepted,
+  because upstream counts it with tiktoken by design. Where the real wheel is installed the
+  gate lifts itself, because the import it keys on is not there.
 
 Each stand-in names the package it replaces and the day it should be deleted: the one its
 upstream publishes a free-threaded wheel.
 
-### 4. `pyarrow` moved to `>=22`
+### 4. tokenizers is rebuilt, not replaced, where a wheel can be built
+
+The stand-in was written on the belief that tokenizers had not been ported. It has: every
+one of its Rust modules declares `#[pymodule(gil_used = false)]`, and pyo3 is pinned at
+0.28.2, which supports free-threading. What is missing is not support but a *wheel*.
+`[tool.maturin] features` hardcodes `abi3`, there is no stable ABI for a free-threaded
+build, and so every published wheel is unusable on `cp314t` and the sdist cannot link.
+
+Deleting one word from that list builds cleanly. `vendor/build-tokenizers.sh` fetches the
+sdist, checks it against a pinned SHA-256, drops `abi3`, and builds with
+`-undefined dynamic_lookup` — macOS extension modules resolve CPython symbols at load
+time, and without it the link fails on `_PyBaseObject_Type`. The result is checked in at
+`vendor/tokenizers-0.23.1-cp314-cp314t-macosx_11_0_arm64.whl`, and it keeps the GIL off
+even *unpinned*, which is the difference between a library that was ported and one that
+merely compiles.
+
+A checked-in binary wheel is a real cost, and it is narrow: one platform, one architecture,
+one interpreter minor — a `cp314t` wheel is not a `cp315t` one. `[tool.uv.sources]` gives
+tokenizers two sources under complementary markers, so anywhere the wheel does not apply
+falls back to the stand-in and the gate in decision 3 takes over. The script is what makes
+the wheel auditable rather than mysterious: it is one `sed` away from the published sdist,
+and it fails loudly if upstream moves the line it patches.
+
+What the script cannot give is a bit-identical rebuild. `SOURCE_DATE_EPOCH` pins the zip's
+mtimes, but rustc embeds absolute build paths and each run builds in a fresh temp
+directory, so the bytes move while the behaviour does not. `uv.lock` records the wheel's
+SHA-256, so every rebuild needs `uv lock --upgrade-package tokenizers` after it — the
+script says so on the way out. Chasing bit-reproducibility through `--remap-path-prefix`
+was not worth the depth for one wheel on one machine.
+
+### 5. `pyarrow` moved to `>=22`
 
 `pyarrow` 21 has no `cp314t` wheel and its sdist wants cmake. 22 was the first release with
 one. The upper bound moved to `<26` to admit it.
 
-### 5. Extraction is threaded; lxml is not
+### 6. Extraction is threaded; lxml is not
 
 The prospective benefit is now taken. `doc.extract` runs a corpus through
 `extraction.extract_many`, which is the first threaded work in the runtime. Extraction was
@@ -131,7 +172,7 @@ mitigation is that the first threadable item is extracted on the calling thread 
 pool starts, which interns the standard PDF names while nothing is racing. What remains is
 document-specific and compared by value.
 
-### 6. ormsgpack is a fourth native dependency, and it got it right
+### 7. ormsgpack is a fourth native dependency, and it got it right
 
 Auditing what actually serializes turned up a native extension this ADR had not inventoried.
 `langgraph.checkpoint.serde.jsonplus` packs checkpoints through **ormsgpack**, which
@@ -166,10 +207,17 @@ assert the interpreter and the stand-ins, plus 25 more that assert extraction's 
 its lxml quarantine and its accounting under threads. Every documented command carries
 `PYTHON_GIL=0`; without it the runtime refuses to start.
 
-`compat/` is now a small surface this project maintains that it did not write and does not
-want. It is covered by tests written against the upstream behaviour rather than against the
-implementation, so the day each dependency ships a free-threaded wheel, deleting a
+`compat/` and `vendor/` are both surfaces this project maintains that it did not write and
+does not want. `compat/` is covered by tests written against the upstream behaviour rather
+than against the implementation, and `vendor/` by a script that is one `sed` from the
+published sdist — so the day each dependency ships a free-threaded wheel, deleting a
 directory and a `[tool.uv.sources]` entry is the whole migration.
+
+Token counting is exact again on this platform: `claude-sonnet-4-5` resolves to a
+`huggingface_tokenizer`, and the gate that refuses uncountable models lifts itself where
+the wheel is installed, because the import it keys on is not there. The suite runs both
+worlds — 34 tests, with the six that belong to the other install skipped rather than
+deleted, so the fallback path stays covered from a machine that does not use it.
 
 ## Still open
 
@@ -188,10 +236,24 @@ directory and a `[tool.uv.sources]` entry is the whole migration.
   bound now by extraction routing lxml items away from the pool, and by nothing else being
   threaded. Revisit when lxml 7 leaves beta, and drop `PYTHON_GIL=0` the moment both
   declare support.
-- **Claude, Cohere and Llama cannot be token-counted.** A run pinned to one of them fails
-  loudly at the counting step rather than silently mis-billing. If one of those becomes the
-  pinned model before tokenizers ships a wheel, the answer is a real tokenizer, not a
-  guess.
+- **The vendored wheel is one platform wide and one interpreter minor deep.** macOS arm64
+  on `cp314t`. A Linux host, an Intel Mac, or 3.15 falls back to the stand-in and inherits
+  the gate — installable, but unable to pin a Claude or Llama model. Rebuilding is one
+  script, but somebody has to run it on that platform, and the wheel it produces has to be
+  committed too. Publishing to an internal index instead is the obvious next step if this
+  ever runs anywhere but here.
+- **The gate reads a private LiteLLM helper.** `litellm.utils._return_huggingface_tokenizer`
+  is the only thing that answers "which tokenizer would you have used", because the public
+  path swallows the failure and reports tiktoken either way. A rename upstream would fail
+  the run rather than fail open, and a test pins the helper so a version bump breaks the
+  suite before it breaks anyone.
+- **A provider-prefixed model routes around the whole question.** LiteLLM does not
+  recognise `openrouter/anthropic/claude-sonnet-4.5` as an Anthropic model, so it counts it
+  with tiktoken whichever tokenizers is installed, and the gate — which tracks LiteLLM's
+  choice — allows it. That is upstream behaviour, and the real wheel does not change it.
+- **The upstream fix is one line and nobody has filed it.** HuggingFace could publish a
+  `cp314t` wheel by adding a non-abi3 build to their matrix. Until someone opens that
+  issue, every free-threaded project repeats this build.
 - **The stand-ins are pinned to the upstream versions they satisfy.** `compat/orjson`
   declares `3.12.0` because that is the floor LangGraph's SDK resolves against, not because
   it implements orjson 3.12.0. A future dependency raising its floor needs the number here

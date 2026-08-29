@@ -70,13 +70,20 @@ pure-Python stand-ins in `compat/` that free-threading cost us.
 ```bash
 uv sync --group dev
 export PYTHON_GIL=0                                     # required; see ADR 0006
-export SHAKESPEARE_MODEL=openrouter/openai/gpt-5-mini   # a fixed model; aliases are refused
+export SHAKESPEARE_MODEL=openrouter/openai/gpt-5-mini   # fixed, and tiktoken-counted
 uv run shakespeare run \
   --prompt "rename these invoices to YYYYMM, vendor, invoice number, PO number" \
   --input ./invoices --output ./renamed
 ```
 
 `run` plans, previews, and asks before committing. `plan` stops before any write.
+
+Moving aliases are refused. So is any model this install cannot count tokens for: where
+`vendor/`'s free-threaded `tokenizers` wheel applies — macOS arm64 on `cp314t` — every
+model LiteLLM supports is counted exactly; anywhere else the pure-Python stand-in takes
+over and Claude, Llama and Replicate models are refused rather than billed against
+tiktoken. `vendor/build-tokenizers.sh` builds the wheel for another platform. ADR 0006 has
+the detail.
 
 ```bash
 uv run shakespeare plan -p "..." -i ./in -o ./out --plan-out plan.json

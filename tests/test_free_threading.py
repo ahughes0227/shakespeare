@@ -30,6 +30,13 @@ import tokenizers
 
 ROOT = Path(__file__).resolve().parents[1]
 
+#: `vendor/build-tokenizers.sh` produces a real `cp314t` wheel, but only for this platform
+#: and this interpreter minor. Everywhere else `compat/tokenizers` stands in, and the two
+#: are held to different promises: exact counts, or a refusal to guess at them.
+STANDING_IN = hasattr(tokenizers, "TokenizerUnavailable")
+needs_the_stand_in = pytest.mark.skipif(not STANDING_IN, reason="the real tokenizers is installed")
+needs_the_real_one = pytest.mark.skipif(STANDING_IN, reason="no wheel for this platform")
+
 
 class TestTheInterpreter:
     def test_the_build_is_free_threaded_and_the_gil_is_off(self) -> None:
@@ -213,21 +220,134 @@ class TestTheFastuuidStandIn:
         assert all(isinstance(v, str) for v in fastuuid.uuid4_as_strings_bulk(2))
 
 
+class TestTokenCounting:
+    """True of either install: LiteLLM imports, and OpenAI-shaped models use tiktoken."""
+
+    def test_litellm_imports_which_is_what_all_of_this_was_for(self) -> None:
+        import litellm
+
+        assert callable(litellm.completion)
+
+    def test_an_openai_shaped_model_is_counted_by_tiktoken(self) -> None:
+        """`SHAKESPEARE_MODEL` pins an OpenAI-shaped model, so this is the path we use."""
+        from litellm import token_counter
+
+        assert token_counter(model="gpt-4o", text="hello there") > 0
+
+
+@needs_the_stand_in
 class TestTheTokenizersStandIn:
     def test_asking_for_a_tokenizer_fails_loudly_rather_than_approximating(self) -> None:
-        """A guessed token count would be a wrong bill and a wrong batch size."""
+        """A guessed token count would be a wrong bill and a wrong batch size.
+
+        This is the stand-in's own contract. What LiteLLM does with it is the next test.
+        """
         with pytest.raises(tokenizers.TokenizerUnavailable):
             tokenizers.Tokenizer.from_pretrained("Xenova/llama-3-tokenizer")
         with pytest.raises(tokenizers.TokenizerUnavailable):
             tokenizers.Tokenizer.from_str("{}")
 
-    def test_litellm_still_imports_which_is_the_whole_point(self) -> None:
-        import litellm
+    def test_a_claude_model_is_counted_by_tiktoken_because_litellm_swallows_the_refusal(
+        self,
+    ) -> None:
+        """The honest record of what actually happens, not what the stand-in intends.
 
-        assert callable(litellm.completion)
-
-    def test_an_openai_shaped_model_is_counted_by_tiktoken_and_never_touches_it(self) -> None:
-        """`SHAKESPEARE_MODEL` pins an OpenAI-shaped model, so this is the path we use."""
+        `litellm.utils._select_tokenizer_helper` wraps tokenizer selection in a bare
+        `except Exception`, logs at debug and falls back to tiktoken. So the refusal never
+        reaches a caller: a Claude model is counted by the wrong tokenizer and nothing
+        says so. This test exists to fail the day that changes — in either direction.
+        """
         from litellm import token_counter
 
-        assert token_counter(model="gpt-4o", text="hello there") > 0
+        assert token_counter(model="claude-sonnet-4-5", text="hello there friend") > 0
+
+
+class TestTheVendoredTokenizer:
+    """The wheel HuggingFace does not publish, built by `vendor/build-tokenizers.sh`."""
+
+    @needs_the_real_one
+    def test_it_tokenizes_rather_than_refusing(self) -> None:
+        encoding = tokenizers.Tokenizer.from_str(_claude_tokenizer_json()).encode("hello there")
+        assert len(encoding.ids) == 2
+
+    @needs_the_real_one
+    def test_importing_it_does_not_switch_the_gil_back_on(self) -> None:
+        """Its Rust declares `gil_used = false`, which is why the wheel was worth building."""
+        result = subprocess.run(
+            [sys.executable, "-c", "import tokenizers, sys; print(sys._is_gil_enabled())"],
+            capture_output=True,
+            text=True,
+            cwd=ROOT,
+            env={"PATH": "/usr/bin:/bin"},  # unpinned: nothing is forcing the GIL off
+        )
+        assert result.stdout.strip() == "False", result.stderr
+
+    @needs_the_real_one
+    def test_litellm_counts_claude_with_claudes_own_tokenizer(self) -> None:
+        """The point of the exercise: an exact count, not a tiktoken approximation."""
+        from litellm.utils import _select_tokenizer_helper
+
+        assert _select_tokenizer_helper("claude-sonnet-4-5")["type"] == "huggingface_tokenizer"
+
+
+def _claude_tokenizer_json() -> str:
+    """LiteLLM bundles it, so this needs no network."""
+    from importlib import resources
+
+    return (
+        resources.files("litellm.litellm_core_utils.tokenizers")
+        .joinpath("anthropic_tokenizer.json")
+        .read_text()
+    )
+
+
+class TestTheGatewayGate:
+    """`profile_from_environment` refuses only what this install cannot count."""
+
+    def _profile(self, monkeypatch: pytest.MonkeyPatch, model: str) -> None:
+        from system.model_access import profile_from_environment
+
+        monkeypatch.setenv("SHAKESPEARE_MODEL", model)
+        profile_from_environment()
+
+    def test_an_openai_shaped_model_is_accepted(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        self._profile(monkeypatch, "openrouter/openai/gpt-5-mini")
+
+    def test_a_claude_3_model_is_accepted_because_litellm_counts_it_with_tiktoken(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The gate tracks LiteLLM's own choice, not the vendor's name."""
+        self._profile(monkeypatch, "claude-3-5-sonnet-20240620")
+
+    @needs_the_stand_in
+    @pytest.mark.parametrize(
+        "model", ["claude-sonnet-4-5", "meta-llama/llama-3-8b", "replicate/meta/llama-2-70b"]
+    )
+    def test_a_model_it_cannot_count_is_refused(
+        self, monkeypatch: pytest.MonkeyPatch, model: str
+    ) -> None:
+        """Counting these with tiktoken is a wrong bill, so the run does not start."""
+        from system.contracts import ErrorCode
+        from system.model_access import GatewayError
+
+        with pytest.raises(GatewayError) as raised:
+            self._profile(monkeypatch, model)
+        assert raised.value.code is ErrorCode.MODEL_PERMANENT
+        assert "openrouter/openai" in str(raised.value)
+
+    @needs_the_real_one
+    @pytest.mark.parametrize(
+        "model", ["claude-sonnet-4-5", "meta-llama/llama-3-8b", "replicate/meta/llama-2-70b"]
+    )
+    def test_nothing_is_refused_once_the_real_tokenizer_is_installed(
+        self, monkeypatch: pytest.MonkeyPatch, model: str
+    ) -> None:
+        """The gate lifts itself: it exists only where a count would have to be guessed."""
+        self._profile(monkeypatch, model)
+
+    def test_the_private_litellm_helper_the_gate_reads_still_exists(self) -> None:
+        """The coupling that would fail open: no helper, no gate, silent mis-counting."""
+        from litellm.utils import _return_huggingface_tokenizer
+
+        assert callable(_return_huggingface_tokenizer)
+        assert _return_huggingface_tokenizer("gpt-4o") is None
